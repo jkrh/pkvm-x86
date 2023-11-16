@@ -1,9 +1,9 @@
-QEMU := $(TOOLDIR)/usr/bin/qemu-system-x86_64
+QEMU := qemu-system-x86_64
 KERNEL := $(KERNEL_DIR)/arch/x86_64/boot/bzImage
 VMLINUX := $(KERNEL_DIR)/vmlinux
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 
-KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G nokaslr loglevel=8 rw
+KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G nokaslr loglevel=8 intel_iommu=sm_on rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
@@ -21,9 +21,9 @@ QEMUDEBUGOPTS := guest_errors,unimp
 endif
 QEMUDEBUGLOG := -D $(BASE_DIR)/qemudebug.log
 
-QEMUOPTS := --accel tcg,thread=multi $(DRIVE) $(NETWORK) $(USB) \
+QEMUOPTS := -enable-kvm $(DRIVE) $(NETWORK) $(USB) \
 	-d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
-	-machine pc -cpu max -smp 4 -m 8G \
+	-machine q35 -device intel-iommu,aw-bits=48 -cpu host,+vmx -smp 4 -m 8G \
 	-kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
 ifeq ($(DEBUGGER),1)

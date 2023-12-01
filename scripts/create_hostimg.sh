@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/bin/env -S bash -e
 
 export PATH=../buildtools/usr/bin:../buildtools/usr/sbin:$PATH:/usr/sbin
 cd "$(dirname "$0")"

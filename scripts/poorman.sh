@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 POORPIPE=${BASE_DIR}/poorpipe
 rm -f $POORPIPE

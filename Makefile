@@ -10,14 +10,14 @@ $(FETCH_SOURCES):
 	@echo "Fetching sources.."
 	@git submodule update --init
 
-$(BUILD_TOOLS): | $(FETCH_SOURCES)
+$(TOOLDIR):
 	@mkdir -p $(TOOLDIR)
-	@./scripts/build-tools.sh
+
+$(BUILD_TOOLS): | $(TOOLDIR) $(FETCH_SOURCES) ; $(build-qemu)
 
 tools: $(BUILD_TOOLS)
 
 tools-clean:
-	@sudo -E ./scripts/build-tools.sh clean
 	@rm -rf $(TOOLDIR)
 
 $(OBJDIR): | $(BUILD_TOOLS)
@@ -41,8 +41,9 @@ kernel-clean:
 kernel-distclean:
 	cd $(KERNEL_DIR); git xlean -xfd
 
-qemu:
-	@./scripts/build-qemu.sh build
+build-qemu = @./scripts/build-qemu.sh build
+
+qemu: ; $(build-qemu)
 
 qemu-clean:
 	@./scripts/build-qemu.sh clean
@@ -63,9 +64,9 @@ target-crosvm:
 	@./scripts/build-target-crosvm.sh
 
 guestimage:
-	@sudo -E ./scripts/create_guestimg.sh $(USER)
+	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP)
 
 hostimage: $(BUILD_TOOLS)
-	@sudo -E ./scripts/create_hostimg.sh $(USER)
+	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)
 
-.PHONY: all clean target-qemu run $(BUILD_TOOLS) $(DIRS)
+.PHONY: all clean target-qemu run $(DIRS)

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/bin/env -S bash -e
 
 export CROSVMDIR=$BASE_DIR/crosvm
 

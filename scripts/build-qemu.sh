@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/bin/env -S bash -e
 
 cd $QEMUDIR
 
@@ -29,4 +29,4 @@ if [ "x$1" = "xclean" ]; then
 	exit 0
 fi
 build
-slirp-install
+pkg-config --libs slirp > /dev/null 2>&1 || slirp-install

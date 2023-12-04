@@ -1,6 +1,8 @@
-#!/bin/bash -e
+#!/usr/bin/env -S bash -e
 
-export PATH=$PATH:/usr/sbin
+export PATH=$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+export XDG_DATA_DIRS=/usr/local/share:/usr/share
+
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 
@@ -8,6 +10,7 @@ UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/re
 CPUS=`nproc`
 
 USERNAME=$1
+GROUPNAME=$2
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
@@ -35,7 +38,7 @@ do_cleanup()
 	qemu-nbd --disconnect /dev/nbd0 || true
 	sync || true
 	if [ -f $OUTDIR/$OUTFILE ]; then
-		chown $USERNAME.$USERNAME $OUTDIR/$OUTFILE
+		chown $USERNAME:$GROUPNAME $OUTDIR/$OUTFILE
 	fi
 
 	rmmod nbd
@@ -110,7 +113,7 @@ cd -
 
 if [ ! -d $OUTDIR ]; then
 	mkdir -p $OUTDIR
-	chown $USERNAME.$USERNAME $OUTDIR
+	chown $USERNAME:$GROUPNAME $OUTDIR
 fi
 
 cp -f $BASE_DIR/linux/arch/x86_64/boot/bzImage $OUTDIR

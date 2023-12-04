@@ -1,6 +1,8 @@
 #!/usr/bin/env -S bash -e
 
-export PATH=../buildtools/usr/bin:../buildtools/usr/sbin:$PATH:/usr/sbin
+export PATH=../buildtools/usr/bin:../buildtools/usr/sbin:$PATH
+export PATH=$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+export XDG_DATA_DIRS=/usr/local/share:/usr/share
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 

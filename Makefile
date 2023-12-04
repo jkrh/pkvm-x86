@@ -64,9 +64,9 @@ target-crosvm:
 	@./scripts/build-target-crosvm.sh
 
 guestimage:
-	@sudo -E ./scripts/create_guestimg.sh $(USER)
+	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP)
 
 hostimage: $(BUILD_TOOLS)
-	@sudo -E ./scripts/create_hostimg.sh $(USER)
+	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)
 
 .PHONY: all clean target-qemu run $(DIRS)

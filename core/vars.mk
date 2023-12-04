@@ -10,3 +10,4 @@ export NJOBS := $(shell exec nproc)
 export PLATFORM ?= X1
 export BUILD_TOOLS := $(TOOLDIR)/usr/bin/qemu-system-x86_64
 export FETCH_SOURCES := $(BASE_DIR)/qemu/VERSION
+export GROUP := $$(id -gn)

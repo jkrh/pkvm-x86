@@ -8,6 +8,7 @@ UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/re
 CPUS=`nproc`
 
 USERNAME=$1
+GROUPNAME=$2
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22`
@@ -35,7 +36,7 @@ do_cleanup()
 	qemu-nbd --disconnect /dev/nbd0 || true
 	sync || true
 	if [ -f $OUTDIR/$OUTFILE ]; then
-		chown $USERNAME.$USERNAME $OUTDIR/$OUTFILE
+		chown $USERNAME:$GROUPNAME $OUTDIR/$OUTFILE
 	fi
 	rmmod nbd
 	rm -rf tmp `basename $UBUNTU_BASE`

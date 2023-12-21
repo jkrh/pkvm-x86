@@ -1,4 +1,4 @@
-From 667a24aeee7908fbfc9124a76bb5c2ce07df10f7 Mon Sep 17 00:00:00 2001
+From 66864fa4d8ebaf979b518c0caea071adb8ab2021 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -80,10 +80,10 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1072 ++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1069 ++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   70 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
- arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  455 ++
+ arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  463 ++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.c        |  374 ++
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.h        |   67 +
@@ -158,14 +158,14 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  include/uapi/linux/kvm_para.h                 |   11 +
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
- virt/kvm/kvm_main.c                           |   53 +-
+ virt/kvm/kvm_main.c                           |   57 +-
  virt/kvm/pkvm/buddy_memory.h                  |   36 +
  virt/kvm/pkvm/gfp.h                           |   35 +
  .../hyp/nvhe => virt/kvm/pkvm}/page_alloc.c   |  135 +-
  virt/kvm/pkvm/pkvm.c                          |   85 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 155 files changed, 27885 insertions(+), 818 deletions(-)
+ 155 files changed, 27894 insertions(+), 818 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -13444,10 +13444,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..8a9143ac8868
+index 000000000000..2366929e1f2d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1072 @@
+@@ -0,0 +1,1069 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -13823,9 +13823,6 @@ index 000000000000..8a9143ac8868
 +
 +	if (is_memory) {
 +		hva = gfn_to_hva(vcpu->kvm, gpa >> PAGE_SHIFT);
-+		if (kvm_is_error_hva(hva))
-+			hva = ~0;
-+
 +		pkvm_err("%s: host memory access violation for 0x%lx/0x%lx at 0x%lx\n",
 +			 __func__, gpa, hva, eip);
 +		return -EPERM;
@@ -14671,10 +14668,10 @@ index 000000000000..87252724a501
 +SYM_CODE_END(nmi_handler)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 new file mode 100644
-index 000000000000..81a9daee2132
+index 000000000000..49f372bdd979
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
-@@ -0,0 +1,455 @@
+@@ -0,0 +1,463 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -14709,6 +14706,8 @@ index 000000000000..81a9daee2132
 +void *host_ept_pgt_base;
 +static void *iommu_mem_base;
 +static void *shadow_ept_base;
++DEFINE_SPINLOCK(pkvm_init_lock);
++static struct kvm *host_kvm;
 +
 +static int divide_memory_pool(phys_addr_t phys, unsigned long size)
 +{
@@ -14955,33 +14954,37 @@ index 000000000000..81a9daee2132
 +
 +static int create_host_vm(struct kvm_vcpu *vcpu)
 +{
-+	struct kvm *kvm = vcpu->kvm = kvm_arch_alloc_vm();
 +	struct kvm_memslots *slots;
 +	struct memblock_region *reg;
 +	struct kvm_memory_slot *new = NULL;
 +	int ret = 0, i, j;
 +
++	host_kvm = vcpu->kvm = kvm_arch_alloc_vm();
++	if (!host_kvm) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
 +	/* Mark as host kvm */
-+	kvm->pkvm.shadow_vm_handle = PKVM_HOST_HANDLE;
++	host_kvm->pkvm.shadow_vm_handle = PKVM_HOST_HANDLE;
 +
 +	/* Initialize the memslot construction */
-+	refcount_set(&kvm->users_count, 1);
-+	mutex_lock(&kvm->slots_arch_lock);
-+	mutex_init(&kvm->slots_lock);
-+	spin_lock_init(&kvm->mn_invalidate_lock);
-+	if (init_srcu_struct(&kvm->srcu)) {
++	refcount_set(&host_kvm->users_count, 1);
++	mutex_init(&host_kvm->slots_lock);
++	spin_lock_init(&host_kvm->mn_invalidate_lock);
++	if (init_srcu_struct(&host_kvm->srcu)) {
 +		ret = -EFAULT;
 +		goto out;
 +	}
-+	if (init_srcu_struct(&kvm->irq_srcu)) {
++	if (init_srcu_struct(&host_kvm->irq_srcu)) {
 +		ret = -EFAULT;
 +		goto out;
 +	}
-+	rcuwait_init(&kvm->mn_memslots_update_rcuwait);
++	rcuwait_init(&host_kvm->mn_memslots_update_rcuwait);
 +
 +	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
 +		for (j = 0; j < 2; j++) {
-+			slots = &kvm->__memslots[i][j];
++			slots = &host_kvm->__memslots[i][j];
 +
 +			atomic_long_set(&slots->last_used_slot, (unsigned long)NULL);
 +			slots->hva_tree = RB_ROOT_CACHED;
@@ -14993,8 +14996,10 @@ index 000000000000..81a9daee2132
 +	}
 +
 +	/* the default active set = 0 */
-+	rcu_assign_pointer(kvm->memslots[0], &kvm->__memslots[0][0]);
-+	rcu_assign_pointer(kvm->memslots[1], &kvm->__memslots[0][1]);
++	rcu_assign_pointer(host_kvm->memslots[0], &host_kvm->__memslots[0][0]);
++	rcu_assign_pointer(host_kvm->memslots[1], &host_kvm->__memslots[0][1]);
++	kvm_info("pkvm: memslots 0x%llx (A), 0x%llx (I)",
++		 (u64)host_kvm->memslots[0], (u64)host_kvm->memslots[1]);
 +
 +	/* Set them up */
 +	for (i = 0; i < pkvm_memblock_nr; i++) {
@@ -15007,6 +15012,7 @@ index 000000000000..81a9daee2132
 +		new->as_id = 0;
 +		new->id = i + 1;
 +		new->base_gfn = reg->base;
++		new->base_gfn = new->base_gfn >> PAGE_SHIFT;
 +		new->userspace_addr = (u64)phys_to_virt(reg->base);
 +
 +		if (!(reg->size % PAGE_SIZE))
@@ -15014,17 +15020,16 @@ index 000000000000..81a9daee2132
 +		else
 +			new->npages = (reg->size / PAGE_SIZE) + 1;
 +
-+		ret = kvm_arch_prepare_memory_region(kvm, NULL, new, KVM_MR_CREATE);
++		ret = kvm_arch_prepare_memory_region(host_kvm, NULL, new, KVM_MR_CREATE);
 +		if (ret)
 +			goto out;
 +
-+		kvm_create_memslot(vcpu->kvm, new);
-+		pkvm_info("pkvm: registered host memslot 0x%llx/0x%lx sz %lu",
++		kvm_create_memslot(host_kvm, new);
++		pkvm_info("pkvm: host memslot GFN 0x%llx ADDR 0x%lx sz %lu",
 +			  new->base_gfn, new->userspace_addr,
 +			  new->npages * PAGE_SIZE);
 +        }
 +out:
-+	mutex_unlock(&kvm->slots_arch_lock);
 +	if (ret && new)
 +		kfree(new);
 +
@@ -15036,7 +15041,6 @@ index 000000000000..81a9daee2132
 +			 int section_sz)
 +{
 +	int i, ret = 0;
-+	static bool pkvm_init;
 +	struct pkvm_host_vcpu *pkvm_host_vcpu = to_pkvm_hvcpu(vcpu);
 +	struct pkvm_pcpu *pcpu = pkvm_host_vcpu->pcpu;
 +	struct pkvm_section tmp_sections[TMP_SECTION_SZ];
@@ -15044,9 +15048,11 @@ index 000000000000..81a9daee2132
 +	unsigned long pkvm_mem_size = 0;
 +	u64 eptp;
 +
-+	if (pkvm_init) {
++	spin_lock(&pkvm_init_lock);
++	if (host_kvm) {
 +		/* Switch to pkvm mmu in root mode in case some setup may need this */
 +		native_write_cr3(pkvm_hyp->mmu->root_pa);
++		vcpu->kvm = host_kvm;
 +		goto switch_pgt;
 +	}
 +
@@ -15111,8 +15117,6 @@ index 000000000000..81a9daee2132
 +	if (ret)
 +		goto out;
 +
-+	pkvm_init = true;
-+
 +switch_pgt:
 +	/* switch mmu */
 +	vmcs_writel(HOST_CR3, pkvm_hyp->mmu->root_pa);
@@ -15128,6 +15132,7 @@ index 000000000000..81a9daee2132
 +
 +	ret = pkvm_setup_lapic(pcpu, vcpu->cpu);
 +out:
++	spin_unlock(&pkvm_init_lock);
 +	return ret;
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/io.h b/arch/x86/kvm/vmx/pkvm/hyp/io.h
@@ -31107,7 +31112,7 @@ index 0d5d4419139a..22dcc759fd07 100644
  #ifdef KVM_CAP_IRQ_ROUTING
  
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8123f4d15930..5a0766e2b02e 100644
+index 8123f4d15930..61519272564b 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -55,6 +55,7 @@
@@ -31185,18 +31190,22 @@ index 8123f4d15930..5a0766e2b02e 100644
  
  	/* Grab the generation from the activate memslots. */
  	u64 gen = __kvm_memslots(kvm, as_id)->generation;
-@@ -1590,7 +1623,9 @@ static void kvm_swap_active_memslots(struct kvm *kvm, int as_id)
+@@ -1590,7 +1623,13 @@ static void kvm_swap_active_memslots(struct kvm *kvm, int as_id)
  	 */
  	mutex_unlock(&kvm->slots_arch_lock);
  
 -	synchronize_srcu_expedited(&kvm->srcu);
++	/*
++	 * FIXME: a hack. We can swap memslots from the vmcall handler,
++	 * so don't sync in that case.
++	 */
 +	cur = get_current();
 +	if (cur->pid != 1)
 +		synchronize_srcu_expedited(&kvm->srcu);
  
  	/*
  	 * Increment the new memslot generation a second time, dropping the
-@@ -1773,8 +1808,8 @@ static void kvm_invalidate_memslot(struct kvm *kvm,
+@@ -1773,8 +1812,8 @@ static void kvm_invalidate_memslot(struct kvm *kvm,
  	old->arch = invalid_slot->arch;
  }
  
@@ -31207,7 +31216,7 @@ index 8123f4d15930..5a0766e2b02e 100644
  {
  	/* Add the new memslot to the inactive set and activate. */
  	kvm_replace_memslot(kvm, NULL, new);
-@@ -5908,7 +5943,7 @@ static void check_processor_compat(void *data)
+@@ -5908,7 +5947,7 @@ static void check_processor_compat(void *data)
  }
  
  int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
@@ -31216,7 +31225,7 @@ index 8123f4d15930..5a0766e2b02e 100644
  {
  	struct kvm_cpu_compat_check c;
  	int r;
-@@ -5946,6 +5981,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -5946,6 +5985,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  			goto out_free_2;
  	}
  

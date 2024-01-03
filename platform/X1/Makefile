@@ -3,10 +3,13 @@ KERNEL := $(KERNEL_DIR)/arch/x86_64/boot/bzImage
 VMLINUX := $(KERNEL_DIR)/vmlinux
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 
-KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G nokaslr loglevel=8 intel_iommu=sm_on rw
+#KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr loglevel=8 intel_iommu=sm_on rw
+KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr loglevel=8 intel_iommu=on rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
-CPU := --enable-kvm -cpu host,+vmx -smp 4
+MACHINE := -machine q35,kernel-irqchip=split -device intel-iommu,aw-bits=48,device-iotlb=on,intremap=on
+MEM := -m 8G
+CPU := --enable-kvm -cpu host,+vmx,+waitpkg -smp 4
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
@@ -22,10 +25,8 @@ QEMUDEBUGOPTS := guest_errors,unimp
 endif
 QEMUDEBUGLOG := -D $(BASE_DIR)/qemudebug.log
 
-QEMUOPTS := $(CPU) $(DRIVE) $(NETWORK) $(USB) \
-	-d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
-	-machine q35 -device intel-iommu,aw-bits=48 -m 8G \
-	-kernel $(KERNEL) -append '$(KERNEL_OPTS)'
+QEMUOPTS := $(MACHINE) $(CPU) $(MEM) $(DRIVE) $(NETWORK) $(USB) -d $(QEMUDEBUGOPTS) \
+	$(QEMUDEBUGLOG) $(DEBUGOPTS) -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
 ifeq ($(DEBUGGER),1)
 QEMUOPTS := $(QEMUOPTS) -S -s

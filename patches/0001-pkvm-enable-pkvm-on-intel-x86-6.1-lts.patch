@@ -1,4 +1,4 @@
-From 66864fa4d8ebaf979b518c0caea071adb8ab2021 Mon Sep 17 00:00:00 2001
+From c2042b378faefeb294e3223cb4d321a4204f04d8 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -58,7 +58,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/Makefile                  |    1 +
  arch/x86/kernel/cpu/hypervisor.c              |    3 +
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
- arch/x86/kernel/cpu/umwait.c                  |    6 +-
+ arch/x86/kernel/cpu/umwait.c                  |    3 -
  arch/x86/kernel/idt.c                         |    2 +-
  arch/x86/kernel/setup.c                       |    3 +
  arch/x86/kernel/time.c                        |    4 +
@@ -83,7 +83,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1069 ++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   70 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
- arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  463 ++
+ arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  468 ++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.c        |  374 ++
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.h        |   67 +
@@ -162,10 +162,10 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/buddy_memory.h                  |   36 +
  virt/kvm/pkvm/gfp.h                           |   35 +
  .../hyp/nvhe => virt/kvm/pkvm}/page_alloc.c   |  135 +-
- virt/kvm/pkvm/pkvm.c                          |   85 +
+ virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 155 files changed, 27894 insertions(+), 818 deletions(-)
+ 155 files changed, 27896 insertions(+), 820 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -12629,22 +12629,19 @@ index 000000000000..e68ae5f3e263
 +	.init.x2apic_available  = pkvm_x2apic_available,
 +};
 diff --git a/arch/x86/kernel/cpu/umwait.c b/arch/x86/kernel/cpu/umwait.c
-index ec8064c0ae03..b93dfb2f26cc 100644
+index ec8064c0ae03..601d3f1b983b 100644
 --- a/arch/x86/kernel/cpu/umwait.c
 +++ b/arch/x86/kernel/cpu/umwait.c
-@@ -206,7 +206,11 @@ static int __init umwait_init(void)
+@@ -206,9 +206,6 @@ static int __init umwait_init(void)
  	struct device *dev;
  	int ret;
  
 -	if (!boot_cpu_has(X86_FEATURE_WAITPKG))
-+	/* FIXME: */
-+	if (boot_cpu_has(X86_FEATURE_WAITPKG)) {
-+		pr_info("disabling WAITPKG due to virtualization\n");
-+		return -ENODEV;
-+	} else
- 		return -ENODEV;
- 
+-		return -ENODEV;
+-
  	/*
+ 	 * Cache the original control MSR value before the control MSR is
+ 	 * changed. This is the only place where orig_umwait_control_cached
 diff --git a/arch/x86/kernel/idt.c b/arch/x86/kernel/idt.c
 index a58c6bc1cd68..bd113065f802 100644
 --- a/arch/x86/kernel/idt.c
@@ -14668,10 +14665,10 @@ index 000000000000..87252724a501
 +SYM_CODE_END(nmi_handler)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 new file mode 100644
-index 000000000000..49f372bdd979
+index 000000000000..4b7789de42bc
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
-@@ -0,0 +1,463 @@
+@@ -0,0 +1,468 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -14887,9 +14884,10 @@ index 000000000000..49f372bdd979
 +				  (unsigned long)reg->base,
 +				  (unsigned long)reg->size,
 +				  0, entry_prot);
-+		pkvm_info("create_host_ept_mapping(): mapped 0x%llx/0x%llx -> 0x%llx, sz %llu\n",
-+			  (u64)phys_to_virt(reg->base), reg->base, reg->base, reg->size);
-+		if (ret)
++		if (!ret)
++			pkvm_info("create_host_ept_mapping(): mapped 0x%llx/0x%llx -> 0x%llx, sz %llu\n",
++				 (u64)phys_to_virt(reg->base), reg->base, reg->base, reg->size);
++		else
 +			return ret;
 +	}
 +
@@ -14900,11 +14898,15 @@ index 000000000000..49f372bdd979
 +	entry_prot = pkvm_mkstate(HOST_EPT_DEF_MMIO_PROT, PKVM_PAGE_OWNED);
 +	for (i = 0; i < pkvm_memblock_nr; i++, phys = reg->base + reg->size) {
 +		reg = &pkvm_memory[i];
-+		pkvm_info("create_host_ept_mapping(): mapped 0x%lx/0x%lx -> 0x%lx, sz %llu\n",
-+			  (unsigned long)phys_to_virt(phys), phys, phys, reg->base - phys);
++		if (!phys)
++			continue;
++
 +		ret = pkvm_host_ept_map(phys, phys, (unsigned long)reg->base - phys,
 +				  0, entry_prot);
-+		if (ret)
++		if (!ret)
++			pkvm_info("create_host_ept_mapping(): mapped 0x%lx/0x%lx -> 0x%lx, sz %llu\n",
++				 (unsigned long)phys_to_virt(phys), phys, phys, reg->base - phys);
++		else
 +			return ret;
 +	}
 +
@@ -15013,7 +15015,7 @@ index 000000000000..49f372bdd979
 +		new->id = i + 1;
 +		new->base_gfn = reg->base;
 +		new->base_gfn = new->base_gfn >> PAGE_SHIFT;
-+		new->userspace_addr = (u64)phys_to_virt(reg->base);
++		new->userspace_addr = (u64)pkvm_phys_to_virt(reg->base);
 +
 +		if (!(reg->size % PAGE_SIZE))
 +			new->npages = reg->size / PAGE_SIZE;
@@ -27048,7 +27050,7 @@ index 000000000000..c6cd7f3656b0
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/pkvm_host.c b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
 new file mode 100644
-index 000000000000..b46c9e07fb1e
+index 000000000000..8ea38b152e30
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
 @@ -0,0 +1,1300 @@
@@ -27934,20 +27936,20 @@ index 000000000000..b46c9e07fb1e
 +
 +	ret = pkvm_host_init_vmx(vcpu, cpu);
 +	if (ret) {
-+		pr_err("%s: init vmx failed\n", __func__);
++		pr_err("%s(): init vmx failed\n", __func__);
 +		goto out;
 +	}
 +
 +	ret = pkvm_host_run_vcpu(vcpu);
 +	if (ret == 0) {
-+		pr_info("%s: CPU%d in guest mode\n", __func__, cpu);
++		pr_info("%s(): CPU%d in guest mode\n", __func__, cpu);
 +		goto ok;
 +	}
 +
 +out:
 +	p->ret = ret;
 +	pkvm_host_deinit_vmx(vcpu);
-+	pr_err("%s: failed to deprivilege CPU%d\n", __func__, cpu);
++	pr_err("%s(): failed to deprivilege CPU%d\n", __func__, cpu);
 +
 +ok:
 +	local_irq_restore(flags);
@@ -31634,10 +31636,10 @@ index d40f0b30b534..83a61c55cf0f 100644
  }
 diff --git a/virt/kvm/pkvm/pkvm.c b/virt/kvm/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..03894f4ca24c
+index 000000000000..274e20830317
 --- /dev/null
 +++ b/virt/kvm/pkvm/pkvm.c
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,87 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (C) 2020 - Google LLC
@@ -31683,6 +31685,8 @@ index 000000000000..03894f4ca24c
 +
 +		_pkvm_memory[*pkvm_memblock_nr_ptr] = *reg;
 +		(*pkvm_memblock_nr_ptr)++;
++		kvm_info("registered 0x%llx sz %llu from the model\n",
++			 reg->base, reg->size);
 +	}
 +	sort_memblock_regions();
 +

@@ -1,4 +1,4 @@
-From c2042b378faefeb294e3223cb4d321a4204f04d8 Mon Sep 17 00:00:00 2001
+From 5bcefe9ddbf9f4aaddcf543aa272460261bb2d8a Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -50,6 +50,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/include/asm/pkvm_image.h             |   48 +
  arch/x86/include/asm/pkvm_image_vars.h        |   23 +
  arch/x86/include/asm/pkvm_spinlock.h          |   62 +
+ arch/x86/include/asm/sections.h               |    2 +-
  arch/x86/include/asm/tdx.h                    |   19 +-
  arch/x86/include/asm/virt_exception.h         |   41 +
  arch/x86/include/asm/vmx.h                    |    7 +
@@ -63,7 +64,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/setup.c                       |    3 +
  arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
- arch/x86/kernel/vmlinux.lds.S                 |   37 +
+ arch/x86/kernel/vmlinux.lds.S                 |   44 +-
  arch/x86/kvm/Kconfig                          |   24 +
  arch/x86/kvm/Makefile                         |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
@@ -141,6 +142,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx_lib.h                    |  241 +
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   66 +-
+ arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
  drivers/iommu/intel/debugfs.c                 |   14 +-
@@ -165,7 +167,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 155 files changed, 27896 insertions(+), 820 deletions(-)
+ 157 files changed, 27903 insertions(+), 824 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -12416,6 +12418,19 @@ index 000000000000..e524116fe15d
 +static inline void arch_pkvm_assert_lock_held(arch_pkvm_spinlock_t *lock) { }
 +
 +#endif
+diff --git a/arch/x86/include/asm/sections.h b/arch/x86/include/asm/sections.h
+index 3fa87e5e11ab..eefd6ad66e92 100644
+--- a/arch/x86/include/asm/sections.h
++++ b/arch/x86/include/asm/sections.h
+@@ -6,7 +6,7 @@
+ #include <asm/extable.h>
+ 
+ extern char __brk_base[], __brk_limit[];
+-extern char __end_rodata_aligned[];
++extern char __start_rodata_aligned[], __end_rodata_aligned[];
+ 
+ #if defined(CONFIG_X86_64)
+ extern char __end_rodata_hpage_align[];
 diff --git a/arch/x86/include/asm/tdx.h b/arch/x86/include/asm/tdx.h
 index 020c81a7c729..e44b97f69ccd 100644
 --- a/arch/x86/include/asm/tdx.h
@@ -12734,10 +12749,31 @@ index c0a5a4f225d9..f026ffb62de6 100644
  
  	cond_local_irq_disable(regs);
 diff --git a/arch/x86/kernel/vmlinux.lds.S b/arch/x86/kernel/vmlinux.lds.S
-index 78ccb5ec3c0e..c24394c7c245 100644
+index 78ccb5ec3c0e..41e24624172e 100644
 --- a/arch/x86/kernel/vmlinux.lds.S
 +++ b/arch/x86/kernel/vmlinux.lds.S
-@@ -111,6 +111,35 @@ PHDRS {
+@@ -59,7 +59,9 @@ jiffies = jiffies_64;
+  * so we can enable protection checks as well as retain 2MB large page
+  * mappings for kernel text.
+  */
+-#define X86_ALIGN_RODATA_BEGIN	. = ALIGN(HPAGE_SIZE);
++#define X86_ALIGN_RODATA_BEGIN					\
++ 		. = ALIGN(HPAGE_SIZE); 				\
++ 		__start_rodata_aligned = .;
+ 
+ #define X86_ALIGN_RODATA_END					\
+ 		. = ALIGN(HPAGE_SIZE);				\
+@@ -88,7 +90,8 @@ jiffies = jiffies_64;
+ 
+ #else
+ 
+-#define X86_ALIGN_RODATA_BEGIN
++#define X86_ALIGN_RODATA_BEGIN					\
++		__start_rodata_aligned = .;
+ #define X86_ALIGN_RODATA_END					\
+ 		. = ALIGN(PAGE_SIZE);				\
+ 		__end_rodata_aligned = .;
+@@ -111,6 +114,35 @@ PHDRS {
  	note PT_NOTE FLAGS(0);          /* ___ */
  }
  
@@ -12773,7 +12809,7 @@ index 78ccb5ec3c0e..c24394c7c245 100644
  SECTIONS
  {
  #ifdef CONFIG_X86_32
-@@ -150,6 +179,7 @@ SECTIONS
+@@ -150,6 +182,7 @@ SECTIONS
  		ALIGN_ENTRY_TEXT_END
  		SOFTIRQENTRY_TEXT
  		STATIC_CALL_TEXT
@@ -12781,7 +12817,7 @@ index 78ccb5ec3c0e..c24394c7c245 100644
  		*(.gnu.warning)
  
  #ifdef CONFIG_RETPOLINE
-@@ -166,6 +196,7 @@ SECTIONS
+@@ -166,6 +199,7 @@ SECTIONS
  	. = ALIGN(PAGE_SIZE);
  
  	X86_ALIGN_RODATA_BEGIN
@@ -12789,7 +12825,7 @@ index 78ccb5ec3c0e..c24394c7c245 100644
  	RO_DATA(PAGE_SIZE)
  	X86_ALIGN_RODATA_END
  
-@@ -181,6 +212,7 @@ SECTIONS
+@@ -181,6 +215,7 @@ SECTIONS
  		/* 32 bit has nosave before _edata */
  		NOSAVE_DATA
  #endif
@@ -12797,7 +12833,7 @@ index 78ccb5ec3c0e..c24394c7c245 100644
  
  		PAGE_ALIGNED_DATA(PAGE_SIZE)
  
-@@ -394,6 +426,7 @@ SECTIONS
+@@ -394,6 +429,7 @@ SECTIONS
  		. = ALIGN(PAGE_SIZE);
  		*(BSS_MAIN)
  		BSS_DECRYPTED
@@ -12805,7 +12841,7 @@ index 78ccb5ec3c0e..c24394c7c245 100644
  		. = ALIGN(PAGE_SIZE);
  		__bss_stop = .;
  	}
-@@ -507,6 +540,10 @@ INIT_PER_CPU(irq_stack_backing_store);
+@@ -507,6 +543,10 @@ INIT_PER_CPU(irq_stack_backing_store);
             "fixed_percpu_data is not at start of per-cpu area");
  #endif
  
@@ -29234,6 +29270,19 @@ index 4d6baae1ae74..b04dc8e877b4 100644
  		return kvm_alloc_memslot_metadata(kvm, new);
  	}
  
+diff --git a/arch/x86/mm/init_64.c b/arch/x86/mm/init_64.c
+index 3f040c6e5d13..a8a1488e113e 100644
+--- a/arch/x86/mm/init_64.c
++++ b/arch/x86/mm/init_64.c
+@@ -1371,7 +1371,7 @@ int kernel_set_to_readonly;
+ void mark_rodata_ro(void)
+ {
+ 	unsigned long start = PFN_ALIGN(_text);
+-	unsigned long rodata_start = PFN_ALIGN(__start_rodata);
++	unsigned long rodata_start = PFN_ALIGN(__start_rodata_aligned);
+ 	unsigned long end = (unsigned long)__end_rodata_hpage_align;
+ 	unsigned long text_end = PFN_ALIGN(_etext);
+ 	unsigned long rodata_end = PFN_ALIGN(__end_rodata);
 diff --git a/arch/x86/mm/mem_encrypt_identity.c b/arch/x86/mm/mem_encrypt_identity.c
 index d94ebd8acdfd..3ce5cfea5728 100644
 --- a/arch/x86/mm/mem_encrypt_identity.c

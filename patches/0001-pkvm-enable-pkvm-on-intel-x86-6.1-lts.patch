@@ -1,4 +1,4 @@
-From e2ea4c81ee8cfa70d6c4d4c62958215a7203a5e4 Mon Sep 17 00:00:00 2001
+From 012c6af4c56a2d569012b2c84eacf3b50e2e737b Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -61,6 +61,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
  arch/x86/kernel/cpu/umwait.c                  |    3 -
  arch/x86/kernel/idt.c                         |    2 +-
+ arch/x86/kernel/msr.c                         |   23 +-
  arch/x86/kernel/setup.c                       |    3 +
  arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
@@ -138,8 +139,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1300 +++++
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
- arch/x86/kvm/vmx/vmx.c                        |  261 +-
- arch/x86/kvm/vmx/vmx_lib.h                    |  241 +
+ arch/x86/kvm/vmx/vmx.c                        |  270 +-
+ arch/x86/kvm/vmx/vmx_lib.h                    |  243 +
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   66 +-
  arch/x86/mm/init_64.c                         |    2 +-
@@ -167,7 +168,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 157 files changed, 27903 insertions(+), 824 deletions(-)
+ 158 files changed, 27936 insertions(+), 825 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -437,7 +438,7 @@ index 5e33c2d4645a..9691fd90de6b 100644
  	$(call if_changed_dep,cc_s_c)
  
 diff --git a/arch/arm64/kvm/arm.c b/arch/arm64/kvm/arm.c
-index 6cc380a15eb7..720961355dcc 100644
+index de94515fb17c..84f92bc86db2 100644
 --- a/arch/arm64/kvm/arm.c
 +++ b/arch/arm64/kvm/arm.c
 @@ -1888,7 +1888,7 @@ static int do_pkvm_init(u32 hyp_va_bits)
@@ -1478,10 +1479,10 @@ index 000000000000..b7cbe432f065
 +	RET
 +SYM_FUNC_END(__pkvm_module_call)
 diff --git a/arch/x86/coco/tdx/tdx.c b/arch/x86/coco/tdx/tdx.c
-index 8a1d48b8c2a3..e8393b62ed0c 100644
+index d0565a9e7d8c..f22b3427b74c 100644
 --- a/arch/x86/coco/tdx/tdx.c
 +++ b/arch/x86/coco/tdx/tdx.c
-@@ -11,6 +11,7 @@
+@@ -12,6 +12,7 @@
  #include <asm/insn.h>
  #include <asm/insn-eval.h>
  #include <asm/pgtable.h>
@@ -1489,7 +1490,7 @@ index 8a1d48b8c2a3..e8393b62ed0c 100644
  
  /* TDX module Call Leaf IDs */
  #define TDX_GET_INFO			1
-@@ -342,111 +343,6 @@ static bool mmio_write(int size, unsigned long addr, unsigned long val)
+@@ -343,111 +344,6 @@ static bool mmio_write(int size, unsigned long addr, unsigned long val)
  			       EPT_WRITE, addr, val);
  }
  
@@ -1601,7 +1602,7 @@ index 8a1d48b8c2a3..e8393b62ed0c 100644
  static bool handle_in(struct pt_regs *regs, int size, int port)
  {
  	struct tdx_hypercall_args args = {
-@@ -606,7 +502,7 @@ static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
+@@ -607,7 +503,7 @@ static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
  	case EXIT_REASON_CPUID:
  		return handle_cpuid(regs, ve);
  	case EXIT_REASON_EPT_VIOLATION:
@@ -1610,7 +1611,7 @@ index 8a1d48b8c2a3..e8393b62ed0c 100644
  	case EXIT_REASON_IO_INSTRUCTION:
  		return handle_io(regs, ve);
  	default:
-@@ -615,7 +511,7 @@ static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
+@@ -616,7 +512,7 @@ static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
  	}
  }
  
@@ -1619,7 +1620,7 @@ index 8a1d48b8c2a3..e8393b62ed0c 100644
  {
  	int insn_len;
  
-@@ -829,5 +725,10 @@ void __init tdx_early_init(void)
+@@ -830,5 +726,10 @@ void __init tdx_early_init(void)
  	x86_platform.guest.enc_cache_flush_required  = tdx_cache_flush_required;
  	x86_platform.guest.enc_tlb_flush_required    = tdx_tlb_flush_required;
  
@@ -1764,7 +1765,7 @@ index 000000000000..15db92c24787
 +}
 diff --git a/arch/x86/configs/nixos_defconfig b/arch/x86/configs/nixos_defconfig
 new file mode 100644
-index 000000000000..d9686e0f8a46
+index 000000000000..5b014c3e9b46
 --- /dev/null
 +++ b/arch/x86/configs/nixos_defconfig
 @@ -0,0 +1,4841 @@
@@ -1823,8 +1824,8 @@ index 000000000000..d9686e0f8a46
 +CONFIG_PERF_EVENTS_AMD_POWER=m
 +CONFIG_PERF_EVENTS_AMD_UNCORE=m
 +CONFIG_MICROCODE_AMD=y
-+CONFIG_X86_MSR=m
-+CONFIG_X86_CPUID=m
++CONFIG_X86_MSR=y
++CONFIG_X86_CPUID=y
 +CONFIG_AMD_MEM_ENCRYPT=y
 +CONFIG_NUMA=y
 +CONFIG_X86_PMEM_LEGACY=m
@@ -11768,10 +11769,10 @@ index e41cbf2ec41d..731db23c6197 100644
  
  extern bool nopv;
 diff --git a/arch/x86/include/asm/idtentry.h b/arch/x86/include/asm/idtentry.h
-index 72184b0b2219..51d79424c09a 100644
+index fca710a93eb9..5bf709a697c3 100644
 --- a/arch/x86/include/asm/idtentry.h
 +++ b/arch/x86/include/asm/idtentry.h
-@@ -632,7 +632,7 @@ DECLARE_IDTENTRY_XENCB(X86_TRAP_OTHER,	exc_xen_hypervisor_callback);
+@@ -636,7 +636,7 @@ DECLARE_IDTENTRY_XENCB(X86_TRAP_OTHER,	exc_xen_hypervisor_callback);
  DECLARE_IDTENTRY_RAW(X86_TRAP_OTHER,	exc_xen_unknown_trap);
  #endif
  
@@ -11781,7 +11782,7 @@ index 72184b0b2219..51d79424c09a 100644
  #endif
  
 diff --git a/arch/x86/include/asm/kvm-x86-ops.h b/arch/x86/include/asm/kvm-x86-ops.h
-index 2c6698aa218b..6edd77847405 100644
+index abc07d004589..0d69336f5875 100644
 --- a/arch/x86/include/asm/kvm-x86-ops.h
 +++ b/arch/x86/include/asm/kvm-x86-ops.h
 @@ -19,8 +19,10 @@ KVM_X86_OP(hardware_disable)
@@ -11796,7 +11797,7 @@ index 2c6698aa218b..6edd77847405 100644
  KVM_X86_OP(vcpu_create)
  KVM_X86_OP(vcpu_free)
 diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
-index c1dcaa3d2d6e..13cce3625c9a 100644
+index dfcdcafe3a2c..4e902ccb96d0 100644
 --- a/arch/x86/include/asm/kvm_host.h
 +++ b/arch/x86/include/asm/kvm_host.h
 @@ -1148,6 +1148,7 @@ enum kvm_apicv_inhibit {
@@ -11820,7 +11821,7 @@ index c1dcaa3d2d6e..13cce3625c9a 100644
  
  	/* Create, but do not attach this VCPU */
  	int (*vcpu_precreate)(struct kvm *kvm);
-@@ -1666,6 +1669,7 @@ struct kvm_x86_nested_ops {
+@@ -1667,6 +1670,7 @@ struct kvm_x86_nested_ops {
  };
  
  struct kvm_x86_init_ops {
@@ -11828,7 +11829,7 @@ index c1dcaa3d2d6e..13cce3625c9a 100644
  	int (*cpu_has_kvm_support)(void);
  	int (*disabled_by_bios)(void);
  	int (*check_processor_compatibility)(void);
-@@ -1717,9 +1721,23 @@ static inline int kvm_arch_flush_remote_tlb(struct kvm *kvm)
+@@ -1718,9 +1722,23 @@ static inline int kvm_arch_flush_remote_tlb(struct kvm *kvm)
  		return -ENOTSUPP;
  }
  
@@ -12567,7 +12568,7 @@ index 46de10a809ec..f513dc0ae610 100644
 +
  #endif /* _ASM_X86_KVM_H */
 diff --git a/arch/x86/kernel/alternative.c b/arch/x86/kernel/alternative.c
-index 46b7ee0ab01a..519d3161aab1 100644
+index 6b8c93989aa3..3cf72587cb8f 100644
 --- a/arch/x86/kernel/alternative.c
 +++ b/arch/x86/kernel/alternative.c
 @@ -1106,6 +1106,7 @@ static void text_poke_memset(void *dst, const void *src, size_t len)
@@ -12658,7 +12659,7 @@ index ec8064c0ae03..601d3f1b983b 100644
  	 * Cache the original control MSR value before the control MSR is
  	 * changed. This is the only place where orig_umwait_control_cached
 diff --git a/arch/x86/kernel/idt.c b/arch/x86/kernel/idt.c
-index a58c6bc1cd68..bd113065f802 100644
+index f5a3374e62cb..dc9fb28a3a19 100644
 --- a/arch/x86/kernel/idt.c
 +++ b/arch/x86/kernel/idt.c
 @@ -69,7 +69,7 @@ static const __initconst struct idt_data early_idts[] = {
@@ -12670,6 +12671,47 @@ index a58c6bc1cd68..bd113065f802 100644
  	INTG(X86_TRAP_VE,		asm_exc_virtualization_exception),
  #endif
  };
+diff --git a/arch/x86/kernel/msr.c b/arch/x86/kernel/msr.c
+index ed8ac6bcbafb..a3b633f414c0 100644
+--- a/arch/x86/kernel/msr.c
++++ b/arch/x86/kernel/msr.c
+@@ -100,7 +100,7 @@ static int filter_write(u32 reg)
+ 		return 0;
+ 
+ 	pr_warn("Write to unrecognized MSR 0x%x by %s (pid: %d).\n",
+-	        reg, current->comm, current->pid);
++		reg, current->comm, current->pid);
+ 	pr_warn("See https://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git/about for details.\n");
+ 
+ 	return 0;
+@@ -222,6 +222,27 @@ static int msr_open(struct inode *inode, struct file *file)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_DEBUG_KERNEL
++
++u64 debug_read_msr(u32 msr)
++{
++	DECLARE_ARGS(val, low, high);
++	int errc = 0;
++	int *err = &errc;
++
++	asm volatile("1:	rdmsr ; xor %[err],%[err]\n"
++		     "2:\n"
++		     _ASM_EXTABLE_TYPE_REG(1b, 2b, EX_TYPE_RDMSR_SAFE, %[err])
++		     : [err] "=r" (*err), EAX_EDX_RET(val, low, high)
++		     : "c" (msr));
++	if (*err)
++		return ~0;
++	else
++		return EAX_EDX_VAL(val, low, high);
++}
++
++#endif
++
+ /*
+  * File operations we support
+  */
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
 index 804a252382da..6af7e3d985b8 100644
 --- a/arch/x86/kernel/setup.c
@@ -13099,10 +13141,10 @@ index c3b0f973375b..15639983c03e 100644
  		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
  					 fault->pfn, iter->old_spte, fault->prefetch, true,
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
-index c871a6d6364c..815c0ae92967 100644
+index 4a663812562d..44770625e276 100644
 --- a/arch/x86/kvm/svm/svm.c
 +++ b/arch/x86/kvm/svm/svm.c
-@@ -4727,6 +4727,11 @@ static void svm_vm_destroy(struct kvm *kvm)
+@@ -4728,6 +4728,11 @@ static void svm_vm_destroy(struct kvm *kvm)
  	sev_vm_destroy(kvm);
  }
  
@@ -13114,7 +13156,7 @@ index c871a6d6364c..815c0ae92967 100644
  static int svm_vm_init(struct kvm *kvm)
  {
  	if (!pause_filter_count || !pause_filter_thresh)
-@@ -4753,6 +4758,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
+@@ -4754,6 +4759,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
  	.vcpu_free = svm_vcpu_free,
  	.vcpu_reset = svm_vcpu_reset,
  
@@ -13122,7 +13164,7 @@ index c871a6d6364c..815c0ae92967 100644
  	.vm_size = sizeof(struct kvm_svm),
  	.vm_init = svm_vm_init,
  	.vm_destroy = svm_vm_destroy,
-@@ -5150,7 +5156,7 @@ static int __init svm_init(void)
+@@ -5151,7 +5157,7 @@ static int __init svm_init(void)
  	 * exposed to userspace!
  	 */
  	r = kvm_init(&svm_init_ops, sizeof(struct vcpu_svm),
@@ -28462,7 +28504,7 @@ index 746129ddd5ae..86299ccc97e7 100644
  	CHECK_OFFSET(posted_intr_nv, 962);
  	CHECK_OFFSET(guest_es_selector, 964);
 diff --git a/arch/x86/kvm/vmx/vmx.c b/arch/x86/kvm/vmx/vmx.c
-index 31a10d774df6..3be6365c7920 100644
+index 98d732b9418f..081fb83071c0 100644
 --- a/arch/x86/kvm/vmx/vmx.c
 +++ b/arch/x86/kvm/vmx/vmx.c
 @@ -48,6 +48,7 @@
@@ -28647,8 +28689,7 @@ index 31a10d774df6..3be6365c7920 100644
 -				MSR_IA32_VMX_PINBASED_CTLS,
 -				&_pin_based_exec_control))
 -		return -EIO;
-+		setting.cpu_based_2nd_exec_ctrl_opt &= ~SECONDARY_EXEC_ENCLS_EXITING;
- 
+-
 -	if (cpu_has_broken_vmx_preemption_timer())
 -		_pin_based_exec_control &= ~PIN_BASED_VMX_PREEMPTION_TIMER;
 -	if (!(_cpu_based_2nd_exec_control &
@@ -28660,7 +28701,8 @@ index 31a10d774df6..3be6365c7920 100644
 -				MSR_IA32_VMX_ENTRY_CTLS,
 -				&_vmentry_control))
 -		return -EIO;
--
++		setting.cpu_based_2nd_exec_ctrl_opt &= ~SECONDARY_EXEC_ENCLS_EXITING;
+ 
 -	for (i = 0; i < ARRAY_SIZE(vmcs_entry_exit_pairs); i++) {
 -		u32 n_ctrl = vmcs_entry_exit_pairs[i].entry_control;
 -		u32 x_ctrl = vmcs_entry_exit_pairs[i].exit_control;
@@ -28836,7 +28878,23 @@ index 31a10d774df6..3be6365c7920 100644
  	.cpu_has_kvm_support = cpu_has_kvm_support,
  	.disabled_by_bios = vmx_disabled_by_bios,
  	.check_processor_compatibility = vmx_check_processor_compat,
-@@ -8613,7 +8478,7 @@ static int __init vmx_init(void)
+@@ -8535,6 +8400,15 @@ static void vmx_exit(void)
+ }
+ module_exit(vmx_exit);
+ 
++#ifdef CONFIG_DEBUG_KERNEL
++
++u64 debug_read_vmx(u64 field)
++{
++	return vmcs_read64(field);
++}
++
++#endif
++
+ static int __init vmx_init(void)
+ {
+ 	int r, cpu;
+@@ -8613,7 +8487,7 @@ static int __init vmx_init(void)
  	 * exposed to userspace!
  	 */
  	r = kvm_init(&vmx_init_ops, sizeof(struct vcpu_vmx),
@@ -28847,10 +28905,10 @@ index 31a10d774df6..3be6365c7920 100644
  
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..beb94139522e
+index 000000000000..180ee63a551f
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,243 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -28904,7 +28962,6 @@ index 000000000000..beb94139522e
 +	return 0;
 +}
 +
-+__attribute__((optimize(1)))
 +static inline int __setup_vmcs_config(struct vmcs_config *vmcs_conf,
 +				    struct vmx_capability *vmx_cap,
 +				    struct vmcs_config_setting *setting)
@@ -28956,6 +29013,9 @@ index 000000000000..beb94139522e
 +				SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES))
 +		_cpu_based_exec_control &= ~CPU_BASED_TPR_SHADOW;
 +#endif
++	/* Until pgd monitoring is in place */
++	_cpu_based_exec_control &= ~CPU_BASED_CR3_LOAD_EXITING;
++	_cpu_based_exec_control &= ~CPU_BASED_CR3_STORE_EXITING;
 +
 +	if (!(_cpu_based_exec_control & CPU_BASED_TPR_SHADOW))
 +		_cpu_based_2nd_exec_control &= ~(
@@ -29150,7 +29210,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 4d6baae1ae74..b04dc8e877b4 100644
+index 7144e5166813..3c4a768a2a14 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -29161,7 +29221,7 @@ index 4d6baae1ae74..b04dc8e877b4 100644
  #include <clocksource/hyperv_timer.h>
  
  #define CREATE_TRACE_POINTS
-@@ -4549,6 +4550,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+@@ -4551,6 +4552,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
  	case KVM_CAP_X86_NOTIFY_VMEXIT:
  		r = kvm_caps.has_notify_vmexit;
  		break;
@@ -29173,7 +29233,7 @@ index 4d6baae1ae74..b04dc8e877b4 100644
  	default:
  		break;
  	}
-@@ -9702,11 +9708,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9704,11 +9710,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -29227,7 +29287,7 @@ index 4d6baae1ae74..b04dc8e877b4 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -12446,9 +12494,11 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12496,11 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -29240,7 +29300,7 @@ index 4d6baae1ae74..b04dc8e877b4 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12641,6 +12691,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12693,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -29248,7 +29308,7 @@ index 4d6baae1ae74..b04dc8e877b4 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12775,10 +12826,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12828,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {
@@ -29376,7 +29436,7 @@ index 1f925285104e..30d9954ffb60 100644
  			irta = virt_to_phys(iommu->ir_table->base);
  			seq_printf(m, " IR table address:%llx\n", irta);
 diff --git a/drivers/iommu/intel/dmar.c b/drivers/iommu/intel/dmar.c
-index f800989ea046..36a22c0a6f30 100644
+index 418af1db0192..5dd3cf0d8e38 100644
 --- a/drivers/iommu/intel/dmar.c
 +++ b/drivers/iommu/intel/dmar.c
 @@ -878,7 +878,7 @@ static int __ref
@@ -29533,7 +29593,7 @@ index f800989ea046..36a22c0a6f30 100644
  
  	while (qi->desc_status[wait_index] != QI_DONE) {
  		/*
-@@ -1621,22 +1625,22 @@ void dmar_disable_qi(struct intel_iommu *iommu)
+@@ -1639,22 +1643,22 @@ void dmar_disable_qi(struct intel_iommu *iommu)
  
  	raw_spin_lock_irqsave(&iommu->register_lock, flags);
  
@@ -29561,7 +29621,7 @@ index f800989ea046..36a22c0a6f30 100644
  		      !(sts & DMA_GSTS_QIES), sts);
  end:
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flags);
-@@ -1665,15 +1669,15 @@ static void __dmar_enable_qi(struct intel_iommu *iommu)
+@@ -1683,15 +1687,15 @@ static void __dmar_enable_qi(struct intel_iommu *iommu)
  	raw_spin_lock_irqsave(&iommu->register_lock, flags);
  
  	/* write zero to the tail reg */
@@ -29581,7 +29641,7 @@ index f800989ea046..36a22c0a6f30 100644
  
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flags);
  }
-@@ -1865,9 +1869,9 @@ void dmar_msi_unmask(struct irq_data *data)
+@@ -1883,9 +1887,9 @@ void dmar_msi_unmask(struct irq_data *data)
  
  	/* unmask it */
  	raw_spin_lock_irqsave(&iommu->register_lock, flag);
@@ -29593,7 +29653,7 @@ index f800989ea046..36a22c0a6f30 100644
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  }
  
-@@ -1879,9 +1883,9 @@ void dmar_msi_mask(struct irq_data *data)
+@@ -1897,9 +1901,9 @@ void dmar_msi_mask(struct irq_data *data)
  
  	/* mask it */
  	raw_spin_lock_irqsave(&iommu->register_lock, flag);
@@ -29605,7 +29665,7 @@ index f800989ea046..36a22c0a6f30 100644
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  }
  
-@@ -1892,9 +1896,9 @@ void dmar_msi_write(int irq, struct msi_msg *msg)
+@@ -1910,9 +1914,9 @@ void dmar_msi_write(int irq, struct msi_msg *msg)
  	unsigned long flag;
  
  	raw_spin_lock_irqsave(&iommu->register_lock, flag);
@@ -29618,7 +29678,7 @@ index f800989ea046..36a22c0a6f30 100644
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  }
  
-@@ -1905,9 +1909,9 @@ void dmar_msi_read(int irq, struct msi_msg *msg)
+@@ -1923,9 +1927,9 @@ void dmar_msi_read(int irq, struct msi_msg *msg)
  	unsigned long flag;
  
  	raw_spin_lock_irqsave(&iommu->register_lock, flag);
@@ -29631,7 +29691,7 @@ index f800989ea046..36a22c0a6f30 100644
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  }
  
-@@ -1959,7 +1963,7 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
+@@ -1977,7 +1981,7 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
  				      DEFAULT_RATELIMIT_BURST);
  
  	raw_spin_lock_irqsave(&iommu->register_lock, flag);
@@ -29640,7 +29700,7 @@ index f800989ea046..36a22c0a6f30 100644
  	if (fault_status && __ratelimit(&rs))
  		pr_err("DRHD: handling fault status reg %x\n", fault_status);
  
-@@ -1981,7 +1985,7 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
+@@ -1999,7 +2003,7 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
  		bool pasid_present;
  
  		/* highest 32 bits */
@@ -29649,7 +29709,7 @@ index f800989ea046..36a22c0a6f30 100644
  				fault_index * PRIMARY_FAULT_REG_LEN + 12);
  		if (!(data & DMA_FRCD_F))
  			break;
-@@ -1991,19 +1995,19 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
+@@ -2009,19 +2013,19 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
  			type = dma_frcd_type(data);
  
  			pasid = dma_frcd_pasid_value(data);
@@ -29673,7 +29733,7 @@ index f800989ea046..36a22c0a6f30 100644
  
  		raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  
-@@ -2019,8 +2023,8 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
+@@ -2037,8 +2041,8 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
  		raw_spin_lock_irqsave(&iommu->register_lock, flag);
  	}
  
@@ -29684,7 +29744,7 @@ index f800989ea046..36a22c0a6f30 100644
  
  unlock_exit:
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
-@@ -2073,8 +2077,8 @@ int __init enable_drhd_fault_handling(void)
+@@ -2091,8 +2095,8 @@ int __init enable_drhd_fault_handling(void)
  		 * Clear any previous faults.
  		 */
  		dmar_fault(iommu->irq, iommu);
@@ -29696,7 +29756,7 @@ index f800989ea046..36a22c0a6f30 100644
  
  	return 0;
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index 5c4f5aa8e87e..f706d7c36207 100644
+index e111b35a7aff..691f0effa039 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -309,7 +309,7 @@ static void init_translation_status(struct intel_iommu *iommu)
@@ -29804,7 +29864,7 @@ index 5c4f5aa8e87e..f706d7c36207 100644
  
  	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  }
-@@ -2764,7 +2764,7 @@ static int copy_translation_tables(struct intel_iommu *iommu)
+@@ -2759,7 +2759,7 @@ static int copy_translation_tables(struct intel_iommu *iommu)
  	int bus, ret;
  	bool new_ext, ext;
  
@@ -29813,7 +29873,7 @@ index 5c4f5aa8e87e..f706d7c36207 100644
  	ext        = !!(rtaddr_reg & DMA_RTADDR_SMT);
  	new_ext    = !!sm_supported(iommu);
  
-@@ -3171,13 +3171,13 @@ static int iommu_suspend(void)
+@@ -3166,13 +3166,13 @@ static int iommu_suspend(void)
  		raw_spin_lock_irqsave(&iommu->register_lock, flag);
  
  		iommu->iommu_state[SR_DMAR_FECTL_REG] =
@@ -29831,7 +29891,7 @@ index 5c4f5aa8e87e..f706d7c36207 100644
  
  		raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  	}
-@@ -3202,14 +3202,14 @@ static void iommu_resume(void)
+@@ -3197,14 +3197,14 @@ static void iommu_resume(void)
  
  		raw_spin_lock_irqsave(&iommu->register_lock, flag);
  
@@ -29854,7 +29914,7 @@ index 5c4f5aa8e87e..f706d7c36207 100644
  
  		raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
  	}
-@@ -3785,7 +3785,7 @@ static ssize_t version_show(struct device *dev,
+@@ -3780,7 +3780,7 @@ static ssize_t version_show(struct device *dev,
  			    struct device_attribute *attr, char *buf)
  {
  	struct intel_iommu *iommu = dev_to_intel_iommu(dev);

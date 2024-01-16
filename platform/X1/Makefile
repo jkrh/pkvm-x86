@@ -9,7 +9,8 @@ WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MACHINE := -machine q35,kernel-irqchip=split -device intel-iommu,aw-bits=48,device-iotlb=on,intremap=on
 MEM := -m 8G
-CPU := --enable-kvm -cpu host,+vmx,+waitpkg -smp 4
+CPUFLAGS := +vmx,+waitpkg,+kvm-pv-ipi,+tsc,+kvm-pv-tlb-flush,+nx
+CPU := --enable-kvm -cpu host,$(CPUFLAGS) -smp 4
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
@@ -17,6 +18,9 @@ NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=1
 SPICESOCK := /tmp/host
 VDAGENT := -device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent
 SPICEOPTS := unix=on,addr=$(SPICESOCK),disable-ticketing=on,image-compression=off,streaming-video=all,playback-compression=off,disable-agent-file-xfer=off
+
+#QEMUTRACEOPTS := --trace "virtio_blk*" --trace "virtio_notify" --trace "virtio_set_status" --trace "virtio_queue_notify"
+QEMUDEBUGOPTS :=
 
 ifeq ($(DEBUGMMU),1)
 QEMUDEBUGOPTS := guest_errors,unimp,mmu
@@ -26,7 +30,7 @@ endif
 QEMUDEBUGLOG := -D $(BASE_DIR)/qemudebug.log
 
 QEMUOPTS := $(MACHINE) $(CPU) $(MEM) $(DRIVE) $(NETWORK) $(USB) -d $(QEMUDEBUGOPTS) \
-	$(QEMUDEBUGLOG) $(DEBUGOPTS) -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
+	$(QEMUDEBUGLOG) $(QEMUTRACEOPTS) $(DEBUGOPTS) -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 
 ifeq ($(DEBUGGER),1)
 QEMUOPTS := $(QEMUOPTS) -S -s

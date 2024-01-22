@@ -9,7 +9,8 @@ WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MACHINE := -machine q35 -device intel-iommu,aw-bits=48,device-iotlb=on
 MEM := -m 8G
-CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+tsc,+nx,+kvm-pv-ipi,+kvm-pv-tlb-flush,+kvm-pv-sched-yield,+kvm-asyncpf-int
+#CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+tsc,+nx,+kvm-pv-ipi,+kvm-pv-tlb-flush,+kvm-pv-sched-yield,+kvm-asyncpf-int
+CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+tsc,+nx,-kvm-pv-ipi,+kvm-pv-tlb-flush,+kvm-pv-sched-yield,+kvm-asyncpf-int
 CPU := --enable-kvm -cpu host,$(CPUFLAGS) -smp 4
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd

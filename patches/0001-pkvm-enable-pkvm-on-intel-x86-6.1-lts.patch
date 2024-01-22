@@ -1,4 +1,4 @@
-From 22360781dd9f3d04529c46421fdf26b7f77e4733 Mon Sep 17 00:00:00 2001
+From ea25752fc498a0c6087150c9d60e0ff73df3a009 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -54,7 +54,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/include/asm/sections.h               |    2 +-
  arch/x86/include/asm/tdx.h                    |   19 +-
  arch/x86/include/asm/virt_exception.h         |   41 +
- arch/x86/include/asm/vmx.h                    |    7 +
+ arch/x86/include/asm/vmx.h                    |    9 +
+ arch/x86/include/asm/vmxfeatures.h            |    2 +
  arch/x86/include/uapi/asm/kvm.h               |    3 +
  arch/x86/kernel/alternative.c                 |    1 +
  arch/x86/kernel/cpu/Makefile                  |    1 +
@@ -62,7 +63,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
  arch/x86/kernel/cpu/umwait.c                  |    3 -
  arch/x86/kernel/idt.c                         |    2 +-
- arch/x86/kernel/kvm.c                         |   35 +-
+ arch/x86/kernel/kvm.c                         |   37 +-
  arch/x86/kernel/msr.c                         |   23 +-
  arch/x86/kernel/setup.c                       |    3 +
  arch/x86/kernel/time.c                        |    4 +
@@ -142,7 +143,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  270 +-
- arch/x86/kvm/vmx/vmx_lib.h                    |  246 +
+ arch/x86/kvm/vmx/vmx.h                        |    4 +-
+ arch/x86/kvm/vmx/vmx_lib.h                    |  241 +
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   66 +-
  arch/x86/mm/init_64.c                         |    2 +-
@@ -171,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 161 files changed, 26948 insertions(+), 836 deletions(-)
+ 163 files changed, 26951 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -11516,7 +11518,7 @@ index 000000000000..ec75523624d7
 +#endif /* !__ASSEMBLY__ */
 +#endif /* _ASM_X86_VIRT_EXCEPTION_H */
 diff --git a/arch/x86/include/asm/vmx.h b/arch/x86/include/asm/vmx.h
-index 498dc600bd5c..0af92c414c19 100644
+index 498dc600bd5c..9d017e55261e 100644
 --- a/arch/x86/include/asm/vmx.h
 +++ b/arch/x86/include/asm/vmx.h
 @@ -68,6 +68,7 @@
@@ -11527,7 +11529,16 @@ index 498dc600bd5c..0af92c414c19 100644
  #define SECONDARY_EXEC_PT_CONCEAL_VMX		VMCS_CONTROL_BIT(PT_CONCEAL_VMX)
  #define SECONDARY_EXEC_XSAVES			VMCS_CONTROL_BIT(XSAVES)
  #define SECONDARY_EXEC_MODE_BASED_EPT_EXEC	VMCS_CONTROL_BIT(MODE_BASED_EPT_EXEC)
-@@ -223,6 +224,8 @@ enum vmcs_field {
+@@ -80,6 +81,8 @@
+ /*
+  * Definitions of Tertiary Processor-Based VM-Execution Controls.
+  */
++#define TERTIARY_ENABLE_EPT_WRITE_CONTROL	VMCS_CONTROL_BIT(EPT_WRITE_CTL)
++#define TERTIARY_ENABLE_GUEST_PAGING_VFY	VMCS_CONTROL_BIT(GUEST_PAGING_VFY)
+ #define TERTIARY_EXEC_IPI_VIRT			VMCS_CONTROL_BIT(IPI_VIRT)
+ 
+ #define PIN_BASED_EXT_INTR_MASK                 VMCS_CONTROL_BIT(INTR_EXITING)
+@@ -223,6 +226,8 @@ enum vmcs_field {
  	VMREAD_BITMAP_HIGH              = 0x00002027,
  	VMWRITE_BITMAP                  = 0x00002028,
  	VMWRITE_BITMAP_HIGH             = 0x00002029,
@@ -11536,7 +11547,7 @@ index 498dc600bd5c..0af92c414c19 100644
  	XSS_EXIT_BITMAP                 = 0x0000202C,
  	XSS_EXIT_BITMAP_HIGH            = 0x0000202D,
  	ENCLS_EXITING_BITMAP		= 0x0000202E,
-@@ -322,6 +325,10 @@ enum vmcs_field {
+@@ -322,6 +327,10 @@ enum vmcs_field {
  	CR3_TARGET_VALUE2               = 0x0000600c,
  	CR3_TARGET_VALUE3               = 0x0000600e,
  	EXIT_QUALIFICATION              = 0x00006400,
@@ -11547,6 +11558,18 @@ index 498dc600bd5c..0af92c414c19 100644
  	GUEST_LINEAR_ADDRESS            = 0x0000640a,
  	GUEST_CR0                       = 0x00006800,
  	GUEST_CR3                       = 0x00006802,
+diff --git a/arch/x86/include/asm/vmxfeatures.h b/arch/x86/include/asm/vmxfeatures.h
+index c6a7eed03914..27cc00400b57 100644
+--- a/arch/x86/include/asm/vmxfeatures.h
++++ b/arch/x86/include/asm/vmxfeatures.h
+@@ -88,5 +88,7 @@
+ #define VMX_FEATURE_NOTIFY_VM_EXITING	( 2*32+ 31) /* VM-Exit when no event windows after notify window */
+ 
+ /* Tertiary Processor-Based VM-Execution Controls, word 3 */
++#define VMX_FEATURE_EPT_WRITE_CTL	( 3*32+  2) /* EPT paging write control */
++#define VMX_FEATURE_GUEST_PAGING_VFY	( 3*32+  3) /* Guest paging verification */
+ #define VMX_FEATURE_IPI_VIRT		( 3*32+  4) /* Enable IPI virtualization */
+ #endif /* _ASM_X86_VMXFEATURES_H */
 diff --git a/arch/x86/include/uapi/asm/kvm.h b/arch/x86/include/uapi/asm/kvm.h
 index 46de10a809ec..f513dc0ae610 100644
 --- a/arch/x86/include/uapi/asm/kvm.h
@@ -11664,7 +11687,7 @@ index f5a3374e62cb..dc9fb28a3a19 100644
  #endif
  };
 diff --git a/arch/x86/kernel/kvm.c b/arch/x86/kernel/kvm.c
-index 796e2f9e8761..59209d29be54 100644
+index 796e2f9e8761..9edcfaf9b9a6 100644
 --- a/arch/x86/kernel/kvm.c
 +++ b/arch/x86/kernel/kvm.c
 @@ -46,6 +46,8 @@
@@ -11723,6 +11746,15 @@ index 796e2f9e8761..59209d29be54 100644
  	}
  
  	local_irq_restore(flags);
+@@ -847,7 +866,7 @@ static void __init kvm_guest_init(void)
+ 
+ 	smp_ops.smp_prepare_boot_cpu = kvm_smp_prepare_boot_cpu;
+ 	if (pv_sched_yield_supported()) {
+-		smp_ops.send_call_func_ipi = kvm_smp_send_call_func_ipi;
++		//smp_ops.send_call_func_ipi = kvm_smp_send_call_func_ipi;
+ 		pr_info("setup PV sched yield\n");
+ 	}
+ 	if (cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN, "x86/kvm:online",
 diff --git a/arch/x86/kernel/msr.c b/arch/x86/kernel/msr.c
 index ed8ac6bcbafb..a3b633f414c0 100644
 --- a/arch/x86/kernel/msr.c
@@ -27959,12 +27991,27 @@ index 98d732b9418f..081fb83071c0 100644
  	if (r)
  		goto err_kvm_init;
  
+diff --git a/arch/x86/kvm/vmx/vmx.h b/arch/x86/kvm/vmx/vmx.h
+index e2b04f4c0fef..0227729f5b20 100644
+--- a/arch/x86/kvm/vmx/vmx.h
++++ b/arch/x86/kvm/vmx/vmx.h
+@@ -589,7 +589,9 @@ static inline u8 vmx_get_rvi(void)
+ 
+ #define KVM_REQUIRED_VMX_TERTIARY_VM_EXEC_CONTROL 0
+ #define KVM_OPTIONAL_VMX_TERTIARY_VM_EXEC_CONTROL			\
+-	(TERTIARY_EXEC_IPI_VIRT)
++	(TERTIARY_ENABLE_EPT_WRITE_CONTROL |				\
++	TERTIARY_ENABLE_GUEST_PAGING_VFY |				\
++	TERTIARY_EXEC_IPI_VIRT)
+ 
+ #define BUILD_CONTROLS_SHADOW(lname, uname, bits)						\
+ static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)			\
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..3129b0a96e6a
+index 000000000000..c9efbbdb3fff
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,241 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -28072,9 +28119,6 @@ index 000000000000..3129b0a96e6a
 +	_cpu_based_exec_control &= ~CPU_BASED_CR3_LOAD_EXITING;
 +	_cpu_based_exec_control &= ~CPU_BASED_CR3_STORE_EXITING;
 +
-+	/* Activate tertiary controls */
-+	_cpu_based_exec_control &= CPU_BASED_ACTIVATE_TERTIARY_CONTROLS;
-+
 +	if (!(_cpu_based_exec_control & CPU_BASED_TPR_SHADOW))
 +		_cpu_based_2nd_exec_control &= ~(
 +				SECONDARY_EXEC_APIC_REGISTER_VIRT |
@@ -28109,8 +28153,6 @@ index 000000000000..3129b0a96e6a
 +		_cpu_based_3rd_exec_control =
 +			adjust_vmx_controls64(KVM_OPTIONAL_VMX_TERTIARY_VM_EXEC_CONTROL,
 +					      MSR_IA32_VMX_PROCBASED_CTLS3);
-+	/* Force virt IPI */
-+	_cpu_based_3rd_exec_control &= TERTIARY_EXEC_IPI_VIRT;
 +
 +	min = setting->vmexit_ctrl_min;
 +	opt = setting->vmexit_ctrl_opt;

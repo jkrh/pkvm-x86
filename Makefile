@@ -64,7 +64,7 @@ target-crosvm:
 	@./scripts/build-target-crosvm.sh
 
 guestimage:
-	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP)
+	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
 
 hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)

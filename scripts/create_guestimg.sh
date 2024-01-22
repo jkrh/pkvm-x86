@@ -46,12 +46,12 @@ do_cleanup()
 }
 
 usage() {
-	echo "$0 -o <output directory> -s <image size> | -u"
+	echo "$0 -k <guest kernel> -o <output directory> -s <image size> | -u"
 }
 
 trap do_cleanup SIGHUP SIGINT SIGTERM EXIT
 
-while getopts "h?u:o:s:" opt; do
+while getopts "h?u:o:s:k:" opt; do
 	case "$opt" in
 	h|\?)	usage
 		exit 0
@@ -62,8 +62,15 @@ while getopts "h?u:o:s:" opt; do
 		;;
 	s)	SIZE=$OPTARG
 		;;
+	k)	GUEST_KERNEL=$OPTARG
+		;;
   esac
 done
+
+if [ "x$GUEST_KERNEL" = "x" ]; then
+	usage
+	exit -1
+fi
 
 echo "Creating image.."
 qemu-img create -f qcow2 $OUTFILE $SIZE
@@ -107,7 +114,7 @@ sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
 sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
 
 echo "Installing kernel modules.."
-cd $BASE_DIR/linux
+cd $GUEST_KERNEL
 make INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$BASE_DIR/scripts/tmp -j$CPUS modules_install
 cd -
 

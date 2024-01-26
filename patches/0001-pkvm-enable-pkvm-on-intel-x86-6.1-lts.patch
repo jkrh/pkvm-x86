@@ -1,4 +1,4 @@
-From d9453eca5f2e220bcbf0c78770a2af276ce3a8c3 Mon Sep 17 00:00:00 2001
+From 1902b745b9e20504f84b21f7856b0c3e52a55204 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -33,7 +33,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
  arch/x86/coco/pkvm/Makefile                   |    3 +
- arch/x86/coco/pkvm/pkvm.c                     |  113 +
+ arch/x86/coco/pkvm/pkvm.c                     |  114 +
  arch/x86/coco/pkvm/pkvmcall.S                 |   42 +
  arch/x86/coco/tdx/tdx.c                       |  115 +-
  arch/x86/coco/virt_exception.c                |  126 +
@@ -69,7 +69,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
- arch/x86/kvm/Kconfig                          |   24 +
+ arch/x86/kvm/Kconfig                          |   33 +
  arch/x86/kvm/Makefile                         |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
  arch/x86/kvm/mmu/mmu.c                        |   47 +-
@@ -134,7 +134,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/vmx_asm.S           |  186 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h           |  173 +
  arch/x86/kvm/vmx/pkvm/include/capabilities.h  |   95 +
- arch/x86/kvm/vmx/pkvm/include/pkvm.h          |  155 +
+ arch/x86/kvm/vmx/pkvm/include/pkvm.h          |  161 +
  arch/x86/kvm/vmx/pkvm/include/pkvm_trace.h    |   29 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.c        |   26 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.h        |   21 +
@@ -146,7 +146,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
  arch/x86/kvm/vmx/vmx_lib.h                    |  243 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |   66 +-
+ arch/x86/kvm/x86.c                            |   70 +-
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25108 insertions(+), 838 deletions(-)
+ 163 files changed, 25128 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1339,10 +1339,10 @@ index 000000000000..7896f6d4f4b2
 +obj-y += pkvm.o pkvmcall.o
 diff --git a/arch/x86/coco/pkvm/pkvm.c b/arch/x86/coco/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..3590bed967db
+index 000000000000..dc6681bf7182
 --- /dev/null
 +++ b/arch/x86/coco/pkvm/pkvm.c
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,114 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#undef pr_fmt
@@ -1449,6 +1449,7 @@ index 000000000000..3590bed967db
 +{
 +	cc_set_vendor(CC_VENDOR_PKVM);
 +
++	pr_info("enabling PKVM guest support!\n");
 +	pkvm_guest_detected = true;
 +
 +	ve_x86_ops.mmio_read = mmio_read;
@@ -10118,10 +10119,10 @@ index 78ccb5ec3c0e..5d33e9c6556a 100644
  . = ASSERT((retbleed_return_thunk & 0x3f) == 0, "retbleed_return_thunk not cacheline-aligned");
  . = ASSERT((srso_safe_ret & 0x3f) == 0, "srso_safe_ret not cacheline-aligned");
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index 67be7f217e37..c025486d728f 100644
+index 67be7f217e37..f500c5bb8534 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
-@@ -87,6 +87,30 @@ config KVM_INTEL
+@@ -87,6 +87,39 @@ config KVM_INTEL
  	  To compile this as a module, choose M here: the module
  	  will be called kvm-intel.
  
@@ -10148,6 +10149,15 @@ index 67be7f217e37..c025486d728f 100644
 +          Provides debug support for pKVM.
 +
 +          If unsure, say N.
++
++config PKVM_INTEL_FORCE_PROTECTED_VM
++        bool "Only protected VMs"
++        depends on PKVM_INTEL
++	default y
++        help
++          Force all pKVM VMs to be protected.
++
++          If unsure, say Y.
 +
  config X86_SGX_KVM
  	bool "Software Guard eXtensions (SGX) Virtualization"
@@ -23904,10 +23914,10 @@ index 000000000000..4f5c6695f509
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/include/pkvm.h b/arch/x86/kvm/vmx/pkvm/include/pkvm.h
 new file mode 100644
-index 000000000000..9ba0678fc492
+index 000000000000..7e6c7280ebf4
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/include/pkvm.h
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,161 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -23923,8 +23933,14 @@ index 000000000000..9ba0678fc492
 +#define PKVM_MAX_IOMMU_NUM	32
 +#define PKVM_MAX_PASID_PDEV_NUM	32
 +#define PKVM_MAX_PDEV_NUM	512
++#ifdef CONFIG_PKVM_INTEL_FORCE_PROTECTED_VM
++#define PKVM_MAX_NORMAL_VM_NUM	0
++#define PKVM_MAX_SECURE_VM_NUM	10
++#else
 +#define PKVM_MAX_NORMAL_VM_NUM	8
 +#define PKVM_MAX_SECURE_VM_NUM	2
++#endif
++
 +
 +struct pkvm_pgtable_cap {
 +	int level;
@@ -26468,7 +26484,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..3c4a768a2a14 100644
+index 7144e5166813..7bc90362b36d 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26545,11 +26561,15 @@ index 7144e5166813..3c4a768a2a14 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -12448,9 +12496,11 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12496,15 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
 -	if (type)
++#ifdef CONFIG_PKVM_INTEL_FORCE_PROTECTED_VM
++	type = KVM_X86_PROTECTED_VM;
++#endif
++
 +	if (!static_call(kvm_x86_is_vm_type_supported)(type))
  		return -EINVAL;
  
@@ -26558,7 +26578,7 @@ index 7144e5166813..3c4a768a2a14 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12643,6 +12693,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12697,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -26566,7 +26586,7 @@ index 7144e5166813..3c4a768a2a14 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12777,10 +12828,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12832,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {

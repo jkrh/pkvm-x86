@@ -1,4 +1,4 @@
-From 1902b745b9e20504f84b21f7856b0c3e52a55204 Mon Sep 17 00:00:00 2001
+From 9fa78832921ef025d419e674f56ace7250a003dd Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -65,7 +65,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/idt.c                         |    2 +-
  arch/x86/kernel/kvm.c                         |   37 +-
  arch/x86/kernel/msr.c                         |   23 +-
- arch/x86/kernel/setup.c                       |    3 +
+ arch/x86/kernel/setup.c                       |    7 +
  arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
@@ -111,13 +111,13 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1485 +++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1554 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  801 ++++
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  155 +
- arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  470 +++
+ arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  469 +++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
  arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  187 +
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 +
@@ -125,28 +125,28 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  362 ++
+ arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  366 ++
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.h            |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  136 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
- arch/x86/kvm/vmx/pkvm/hyp/vmx.c               |   79 +
+ arch/x86/kvm/vmx/pkvm/hyp/vmx.c               |  119 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx.h               |   63 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx_asm.S           |  186 +
- arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h           |  173 +
+ arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h           |  152 +
  arch/x86/kvm/vmx/pkvm/include/capabilities.h  |   95 +
  arch/x86/kvm/vmx/pkvm/include/pkvm.h          |  161 +
  arch/x86/kvm/vmx/pkvm/include/pkvm_trace.h    |   29 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.c        |   26 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.h        |   21 +
  arch/x86/kvm/vmx/pkvm/pkvm_debugfs.c          |  204 +
- arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1302 ++++++
+ arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1303 ++++++
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
- arch/x86/kvm/vmx/vmx.c                        |  270 +-
+ arch/x86/kvm/vmx/vmx.c                        |  269 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
- arch/x86/kvm/vmx/vmx_lib.h                    |  243 ++
+ arch/x86/kvm/vmx/vmx_lib.h                    |  245 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |   70 +-
+ arch/x86/kvm/x86.c                            |   71 +-
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25128 insertions(+), 838 deletions(-)
+ 163 files changed, 25226 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9937,7 +9937,7 @@ index ed8ac6bcbafb..a3b633f414c0 100644
   * File operations we support
   */
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
-index 804a252382da..6af7e3d985b8 100644
+index 804a252382da..dbc5b05a099f 100644
 --- a/arch/x86/kernel/setup.c
 +++ b/arch/x86/kernel/setup.c
 @@ -37,6 +37,7 @@
@@ -9948,7 +9948,18 @@ index 804a252382da..6af7e3d985b8 100644
  #include <asm/hypervisor.h>
  #include <asm/io_apic.h>
  #include <asm/kasan.h>
-@@ -1327,6 +1328,8 @@ void __init setup_arch(char **cmdline_p)
+@@ -822,6 +823,10 @@ dump_kernel_offset(struct notifier_block *self, unsigned long v, void *p)
+ 
+ void x86_configure_nx(void)
+ {
++#ifdef CONFIG_DEBUG_KERNEL
++	__supported_pte_mask &= ~_PAGE_NX;
++	return;
++#endif
+ 	if (boot_cpu_has(X86_FEATURE_NX))
+ 		__supported_pte_mask |= _PAGE_NX;
+ 	else
+@@ -1327,6 +1332,8 @@ void __init setup_arch(char **cmdline_p)
  #endif
  
  	unwind_init();
@@ -11976,7 +11987,7 @@ index 000000000000..87252724a501
 +SYM_CODE_END(nmi_handler)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 new file mode 100644
-index 000000000000..4b7789de42bc
+index 000000000000..7914accae271
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 @@ -0,0 +1,468 @@
@@ -12009,6 +12020,7 @@ index 000000000000..4b7789de42bc
 +#include "lapic.h"
 +#include "pci.h"
 +
++u64 host_eptp = 0;
 +void *pkvm_vmemmap_base;
 +void *pkvm_mmu_pgt_base;
 +void *host_ept_pgt_base;
@@ -12359,7 +12371,6 @@ index 000000000000..4b7789de42bc
 +	struct pkvm_section tmp_sections[TMP_SECTION_SZ];
 +	phys_addr_t pkvm_mem_base;
 +	unsigned long pkvm_mem_size = 0;
-+	u64 eptp;
 +
 +	spin_lock(&pkvm_init_lock);
 +	if (host_kvm) {
@@ -12436,10 +12447,10 @@ index 000000000000..4b7789de42bc
 +	pcpu->cr3 = pkvm_hyp->mmu->root_pa;
 +
 +	/* enable ept */
-+	eptp = pkvm_construct_eptp(pkvm_hyp->host_vm.ept->root_pa,
++	host_eptp = pkvm_construct_eptp(pkvm_hyp->host_vm.ept->root_pa,
 +			pkvm_hyp->host_vm.ept->level);
 +	secondary_exec_controls_setbit(&pkvm_host_vcpu->vmx, SECONDARY_EXEC_ENABLE_EPT);
-+	vmcs_write64(EPT_POINTER, eptp);
++	vmcs_write64(EPT_POINTER, host_eptp);
 +
 +	ept_sync_global();
 +
@@ -18557,10 +18568,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..ab4b4e40baf2
+index 000000000000..8a9695657272
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1485 @@
+@@ -0,0 +1,1554 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18592,6 +18603,9 @@ index 000000000000..ab4b4e40baf2
 +static const unsigned int vmx_msrs[] = {
 +	LIST_OF_VMX_MSRS
 +};
++
++struct vmcs *host_vmcs = 0;
++extern u64 host_eptp;
 +
 +bool is_vmx_msr(unsigned long msr)
 +{
@@ -19002,16 +19016,32 @@ index 000000000000..ab4b4e40baf2
 +	return (rev_id == vmcs_config->revision_id);
 +}
 +
-+static bool check_vmx_permission(struct kvm_vcpu *vcpu)
++static noinline bool check_vmx_permission(struct kvm_vcpu *vcpu)
 +{
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
-+	bool permit = true;
++	u64 cr4;
 +
-+	/*TODO: check more env (cr, cpl) and inject #UD/#GP */
++	/* FIXME: check more env (cr, cpl) and inject #UD/#GP */
++
 +	if (!vmx->nested.vmxon)
-+		permit = false;
++		return false;
 +
-+	return permit;
++	/* The host context must be static (vmcs01 + right ept).. */
++	if (vmcs_read64(EPT_POINTER) != host_eptp) {
++		pkvm_err("%s: entering emulated call from unknown context?\n",
++			__func__);
++		BUG();
++	}
++
++	/* And the virtualization must be enabled .. */
++	asm("mov %%cr4,%0" : "=r"(cr4));
++
++	if (!(cr4 & (1 << X86_CR4_VMXE_BIT))) {
++		BUG();
++		return false;
++	}
++
++	return true;
 +}
 +
 +static void clear_shadow_indicator(struct vmcs *vmcs)
@@ -19230,7 +19260,7 @@ index 000000000000..ab4b4e40baf2
 +	vmcs_clear_track(vmx, vmcs02);
 +	clear_shadow_indicator(vmcs02);
 +
-+	/*disable shadowing*/
++	/* disable shadowing */
 +	vmcs_load_track(vmx, vmx->loaded_vmcs->vmcs);
 +	secondary_exec_controls_clearbit(vmx, SECONDARY_EXEC_SHADOW_VMCS);
 +	vmcs_write64(VMCS_LINK_POINTER, INVALID_GPA);
@@ -19288,9 +19318,10 @@ index 000000000000..ab4b4e40baf2
 +	struct pkvm_shadow_vm *vm = shadow_vcpu->vm;
 +	bool invalidate = false;
 +
-+	if (!is_valid_eptp(guest_eptp))
++	if (!is_valid_eptp(guest_eptp)) {
 +		pkvm_guest_ept_deinit(shadow_vcpu);
-+	else if (vmcs12->ept_pointer != guest_eptp) {
++		return;
++	} else if (vmcs12->ept_pointer != guest_eptp) {
 +		pkvm_guest_ept_deinit(shadow_vcpu);
 +		pkvm_guest_ept_init(shadow_vcpu, guest_eptp);
 +	}
@@ -19338,16 +19369,19 @@ index 000000000000..ab4b4e40baf2
 +{
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
 +
-+	if (check_vmx_permission(vcpu)) {
-+		vmx->nested.vmxon = false;
-+		vmx->nested.vmxon_ptr = INVALID_GPA;
++	if (!check_vmx_permission(vcpu))
++		return 0;
 +
-+		nested_vmx_result(VMsucceed, 0);
-+	}
++	vmx->nested.vmxon = false;
++	vmx->nested.vmxon_ptr = INVALID_GPA;
++	nested_vmx_result(VMsucceed, 0);
 +
 +	return 0;
 +}
 +
++/*
++ * Enter in the host context, exit in the host context. FIXME: nesting.
++ */
 +int handle_vmptrld(struct kvm_vcpu *vcpu)
 +{
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -19355,105 +19389,142 @@ index 000000000000..ab4b4e40baf2
 +	struct shadow_vcpu_state *shadow_vcpu;
 +	struct vmcs *vmcs02;
 +	struct vmcs12 *vmcs12;
++	s64 handle;
 +	gpa_t vmptr;
-+	int r;
++	int r = 0;
 +
-+	if (check_vmx_permission(vcpu)) {
-+		if (nested_vmx_get_vmptr(vcpu, &vmptr, &r)) {
++	if (!check_vmx_permission(vcpu))
++		goto out_ok;
++	if (nested_vmx_get_vmptr(vcpu, &vmptr, &r)) {
++		nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
++		goto out_ok;
++	} else if (vmptr == vmx->nested.vmxon_ptr) {
++		nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_VMXON_POINTER);
++		goto out_ok;
++	} else if (vmptr % PAGE_SIZE) {
++		nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
++		goto out_ok;
++	} else if (!validate_vmcs_revision_id(vcpu, vmptr)) {
++		nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INCORRECT_VMCS_REVISION_ID);
++		goto out_ok;
++	} else {
++		if (vmx->nested.current_vmptr == vmptr) {
++			nested_vmx_result(VMsucceed, 0);
++			goto out_ok;
++		}
++		/*
++		 * For pkvm, we have one non-nested L1 guest that is the host. Hence,
++		 * vmcs01 always refers to the host.
++		 *
++		 * - we enter with vmcs01 (so host) as loaded_vmcs
++		 * - save vmcs02 (guest) to (cached_)vmcs12
++		 * - return to vmcs01
++		 */
++		nested_release_vmcs12(vcpu);
++
++		handle = find_shadow_vcpu_handle_by_vmcs(vmptr);
++		if (handle <= 0) {
 +			nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
-+			return r;
-+		} else if (vmptr == vmx->nested.vmxon_ptr) {
-+			nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_VMXON_POINTER);
-+		} else if (!validate_vmcs_revision_id(vcpu, vmptr)) {
-+			nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INCORRECT_VMCS_REVISION_ID);
++			goto out_ok;
++		}
++		shadow_vcpu = get_shadow_vcpu(handle);
++		if (!shadow_vcpu) {
++			nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
++			goto out_ok;
++		}
++		vmcs02 = (struct vmcs *)shadow_vcpu->vmcs02;
++		vmcs12 = (struct vmcs12 *)shadow_vcpu->cached_vmcs12;
++
++		read_gpa(vcpu, vmptr, vmcs12, VMCS12_SIZE);
++		vmx->nested.dirty_vmcs12 = true;
++
++		/*
++		 * Save vmcs01 (loaded_vmcs) guest state for possible emulation when
++		 * calling sync_vmcs12_dirty_fields_to_vmcs02. Only a few fields are
++		 * saved.
++		 */
++		save_vmcs01_fields_for_emulation(vcpu);
++
++		/*
++		 * Init vmcs02 if needed and load it
++		 */
++		WRITE_ONCE(shadow_vcpu->vcpu, vcpu);
++		if (!shadow_vcpu->vmcs02_inited) {
++			memset(vmcs02, 0, pkvm_hyp->vmcs_config.size);
++			vmcs02->hdr.revision_id = pkvm_hyp->vmcs_config.revision_id;
++			vmcs_load_track(vmx, vmcs02);
++			init_contant_host_state_area(pkvm_hvcpu->pcpu, vcpu->cpu);
++			vmcs_writel(HOST_RIP, (unsigned long)__pkvm_vmx_vmexit);
++			/*
++			 * EPTP is mantained by pKVM and configured with
++			 * shadow EPTP from its corresponding shadow VM.
++			 * As shadow EPTP is not changed at runtime, set
++			 * it to EPTP when the first time this vmcs02 is
++			 * loading.
++			 */
++			vmcs_write64(EPT_POINTER,
++				     shadow_vcpu->vm->sept_desc.shadow_eptp);
++			/*
++			 * Flush the shadow eptp in case there are stale
++			 * entries which are not flushed when destroying
++			 * this shadow EPTP at last time.
++			 */
++			pkvm_flush_shadow_ept(&shadow_vcpu->vm->sept_desc);
++
++			/*
++			 * Write the #VE information physical address.
++			 */
++			if (shadow_vcpu_is_protected(shadow_vcpu)) {
++				memset(&shadow_vcpu->ve_info, 0, sizeof(shadow_vcpu->ve_info));
++				vmcs_write64(VE_INFO_ADDR, __pkvm_pa(&shadow_vcpu->ve_info));
++			}
++
++			shadow_vcpu->last_cpu = vcpu->cpu;
++			shadow_vcpu->vmcs02_inited = true;
 +		} else {
-+			if (vmx->nested.current_vmptr != vmptr) {
-+				s64 handle;
-+
-+				nested_release_vmcs12(vcpu);
-+
-+				handle = find_shadow_vcpu_handle_by_vmcs(vmptr);
-+				if ((handle > 0) && (shadow_vcpu = get_shadow_vcpu(handle))) {
-+					vmcs02 = (struct vmcs *)shadow_vcpu->vmcs02;
-+					vmcs12 = (struct vmcs12 *) shadow_vcpu->cached_vmcs12;
-+
-+					read_gpa(vcpu, vmptr, vmcs12, VMCS12_SIZE);
-+					vmx->nested.dirty_vmcs12 = true;
-+
-+					/*
-+					 * Save vmcs01 guest state for possible emulation when
-+					 * calling sync_vmcs12_dirty_fields_to_vmcs02.
-+					 */
-+					save_vmcs01_fields_for_emulation(vcpu);
-+
-+					WRITE_ONCE(shadow_vcpu->vcpu, vcpu);
-+					if (!shadow_vcpu->vmcs02_inited) {
-+						memset(vmcs02, 0, pkvm_hyp->vmcs_config.size);
-+						vmcs02->hdr.revision_id = pkvm_hyp->vmcs_config.revision_id;
-+						vmcs_load_track(vmx, vmcs02);
-+						init_contant_host_state_area(pkvm_hvcpu->pcpu, vcpu->cpu);
-+						vmcs_writel(HOST_RIP, (unsigned long)__pkvm_vmx_vmexit);
-+						/*
-+						 * EPTP is mantained by pKVM and configured with
-+						 * shadow EPTP from its corresponding shadow VM.
-+						 * As shadow EPTP is not changed at runtime, set
-+						 * it to EPTP when the first time this vmcs02 is
-+						 * loading.
-+						 */
-+						vmcs_write64(EPT_POINTER,
-+							     shadow_vcpu->vm->sept_desc.shadow_eptp);
-+						/*
-+						 * Flush the shadow eptp in case there are stale
-+						 * entries which are not flushed when destroying
-+						 * this shadow EPTP at last time.
-+						 */
-+						pkvm_flush_shadow_ept(&shadow_vcpu->vm->sept_desc);
-+
-+						/*
-+						 * Write the #VE information physical address.
-+						 */
-+						if (shadow_vcpu_is_protected(shadow_vcpu)) {
-+							memset(&shadow_vcpu->ve_info, 0, sizeof(shadow_vcpu->ve_info));
-+							vmcs_write64(VE_INFO_ADDR, __pkvm_pa(&shadow_vcpu->ve_info));
-+						}
-+
-+						shadow_vcpu->last_cpu = vcpu->cpu;
-+						shadow_vcpu->vmcs02_inited = true;
-+					} else {
-+						vmcs_load_track(vmx, vmcs02);
-+						if (shadow_vcpu->last_cpu != vcpu->cpu) {
-+							init_contant_host_state_area(pkvm_hvcpu->pcpu, vcpu->cpu);
-+							shadow_vcpu->last_cpu = vcpu->cpu;
-+						}
-+					}
-+
-+					pkvm_hvcpu->current_shadow_vcpu = shadow_vcpu;
-+
-+					copy_shadow_fields_vmcs12_to_vmcs02(vmx, vmcs12);
-+					sync_vmcs12_dirty_fields_to_vmcs02(vmx, vmcs12);
-+					vmcs_clear_track(vmx, vmcs02);
-+					set_shadow_indicator(vmcs02);
-+
-+					/* enable shadowing */
-+					vmcs_load_track(vmx, vmx->loaded_vmcs->vmcs);
-+					vmcs_write64(VMREAD_BITMAP, __pkvm_pa_symbol(vmx_vmread_bitmap));
-+					vmcs_write64(VMWRITE_BITMAP, __pkvm_pa_symbol(vmx_vmwrite_bitmap));
-+					secondary_exec_controls_setbit(vmx, SECONDARY_EXEC_SHADOW_VMCS);
-+					vmcs_write64(VMCS_LINK_POINTER, __pkvm_pa(vmcs02));
-+
-+					vmx->nested.current_vmptr = vmptr;
-+
-+					nested_vmx_result(VMsucceed, 0);
-+				} else {
-+					nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
-+				}
-+			} else {
-+				nested_vmx_result(VMsucceed, 0);
++			vmcs_load_track(vmx, vmcs02);
++			if (shadow_vcpu->last_cpu != vcpu->cpu) {
++				init_contant_host_state_area(pkvm_hvcpu->pcpu, vcpu->cpu);
++				shadow_vcpu->last_cpu = vcpu->cpu;
 +			}
 +		}
-+	}
++		/*
++		 * This appears to be missing:
++		 *
++                 * IF rev[30:0] ≠ VMCS revision identifier supported by processor OR
++                 * rev[31] = 1 AND processor does not support 1-setting of “VMCS shadowing”
++                 * THEN VMfail(VMPTRLD with incorrect VMCS revision identifier);
++                 * ELSE
++                 *      current-VMCS pointer := addr;
++                 *      VMsucceed;
++                 * FI;
++		 */
++		pkvm_hvcpu->current_shadow_vcpu = shadow_vcpu;
 +
-+	return 0;
++		/*
++		 * Copy back above-saved elements from vmcs12 to vmcs02 and make it shadow
++		 */
++		copy_shadow_fields_vmcs12_to_vmcs02(vmx, vmcs12);
++		sync_vmcs12_dirty_fields_to_vmcs02(vmx, vmcs12);
++		vmcs_clear_track(vmx, vmcs02);
++		set_shadow_indicator(vmcs02);
++
++		/*
++		 * Return back to vmcs01 aka loaded_vmcs, we return to the host.
++		 * FIXME: nesting
++		 */
++		vmcs_load_track(vmx, vmx->loaded_vmcs->vmcs);
++		vmcs_write64(VMREAD_BITMAP, __pkvm_pa_symbol(vmx_vmread_bitmap));
++		vmcs_write64(VMWRITE_BITMAP, __pkvm_pa_symbol(vmx_vmwrite_bitmap));
++		secondary_exec_controls_setbit(vmx, SECONDARY_EXEC_SHADOW_VMCS);
++		vmcs_write64(VMCS_LINK_POINTER, __pkvm_pa(vmcs02));
++
++		vmx->nested.current_vmptr = vmptr;
++
++		nested_vmx_result(VMsucceed, 0);
++	}
++out_ok:
++	return r;
 +}
 +
 +int handle_vmclear(struct kvm_vcpu *vcpu)
@@ -19461,26 +19532,30 @@ index 000000000000..ab4b4e40baf2
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
 +	gpa_t vmptr;
 +	u32 zero = 0;
-+	int r;
++	int r = 0;
 +
-+	if (check_vmx_permission(vcpu)) {
-+		if (nested_vmx_get_vmptr(vcpu, &vmptr, &r)) {
-+			nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
-+			return r;
-+		} else if (vmptr == vmx->nested.vmxon_ptr) {
-+			nested_vmx_result(VMfailValid, VMXERR_VMCLEAR_VMXON_POINTER);
-+		} else {
-+			if (vmx->nested.current_vmptr == vmptr)
-+				nested_release_vmcs12(vcpu);
++	if (!check_vmx_permission(vcpu))
++		goto out_ok ;
++	if (nested_vmx_get_vmptr(vcpu, &vmptr, &r)) {
++		nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
++		goto out_ok;
++	} else if (vmptr == vmx->nested.vmxon_ptr) {
++		nested_vmx_result(VMfailValid, VMXERR_VMCLEAR_VMXON_POINTER);
++		goto out_ok;
++	} else if (vmptr % PAGE_SIZE) {
++		nested_vmx_result(VMfailValid, VMXERR_VMPTRLD_INVALID_ADDRESS);
++		goto out_ok;
++	} else {
++		if (vmx->nested.current_vmptr == vmptr)
++			nested_release_vmcs12(vcpu);
 +
-+			write_gpa(vcpu, vmptr + offsetof(struct vmcs12, launch_state),
-+					&zero, sizeof(zero));
++		write_gpa(vcpu, vmptr + offsetof(struct vmcs12, launch_state),
++				&zero, sizeof(zero));
 +
-+			nested_vmx_result(VMsucceed, 0);
-+		}
++		nested_vmx_result(VMsucceed, 0);
 +	}
-+
-+	return 0;
++out_ok:
++	return r;
 +}
 +
 +int handle_vmwrite(struct kvm_vcpu *vcpu)
@@ -19497,69 +19572,72 @@ index 000000000000..ab4b4e40baf2
 +	int r, reg;
 +	u64 value = 0;
 +
-+	if (check_vmx_permission(vcpu)) {
-+		if (vmx->nested.current_vmptr == INVALID_GPA) {
-+			nested_vmx_result(VMfailInvalid, 0);
-+		} else {
-+			if (instr_info & BIT(10)) {
-+				reg = ((instr_info) >> 3) & 0xf;
-+				value = vcpu->arch.regs[reg];
-+			} else {
-+				if (get_vmx_mem_address(vcpu, vmx->exit_qualification,
-+							instr_info, &gva))
-+					return 1;
++	if (!check_vmx_permission(vcpu))
++		return 0;
 +
-+				r = read_gva(vcpu, gva, &value, 8, &e);
-+				if (r < 0) {
-+					/*TODO: handle memory failure exception */
-+					return r;
-+				}
-+			}
++	if (vmx->nested.current_vmptr == INVALID_GPA) {
++		nested_vmx_result(VMfailInvalid, 0);
++		goto out_ok;
++	}
 +
-+			reg = ((instr_info) >> 28) & 0xf;
-+			field = vcpu->arch.regs[reg];
++	if (instr_info & BIT(10)) {
++		reg = ((instr_info) >> 3) & 0xf;
++		value = vcpu->arch.regs[reg];
++	} else {
++		if (get_vmx_mem_address(vcpu, vmx->exit_qualification,
++					instr_info, &gva))
++			return 1;
 +
-+			offset = get_vmcs12_field_offset(field);
-+			if (offset < 0) {
-+				nested_vmx_result(VMfailInvalid, VMXERR_UNSUPPORTED_VMCS_COMPONENT);
-+				return 0;
-+			}
-+
-+			/*TODO: check vcpu supports "VMWRITE to any supported field in the VMCS"*/
-+			if (vmcs_field_readonly(field)) {
-+				nested_vmx_result(VMfailInvalid, VMXERR_VMWRITE_READ_ONLY_VMCS_COMPONENT);
-+				return 0;
-+			}
-+
-+			/*
-+			 * Some Intel CPUs intentionally drop the reserved bits of the AR byte
-+			 * fields on VMWRITE.  Emulate this behavior to ensure consistent KVM
-+			 * behavior regardless of the underlying hardware, e.g. if an AR_BYTE
-+			 * field is intercepted for VMWRITE but not VMREAD (in L1), then VMREAD
-+			 * from L1 will return a different value than VMREAD from L2 (L1 sees
-+			 * the stripped down value, L2 sees the full value as stored by KVM).
-+			 */
-+			if (field >= GUEST_ES_AR_BYTES && field <= GUEST_TR_AR_BYTES)
-+				value &= 0x1f0ff;
-+
-+			if (field == EPT_POINTER)
-+				setup_guest_ept(cur_shadow_vcpu, value);
-+
-+			vmcs12_write_any(vmcs12, field, offset, value);
-+
-+			if (is_emulated_fields(field)) {
-+				vmx->nested.dirty_vmcs12 = true;
-+				nested_vmx_result(VMsucceed, 0);
-+			} else if (is_host_fields(field)){
-+				nested_vmx_result(VMsucceed, 0);
-+			} else {
-+				pkvm_err("%s: not include emulated fields 0x%lx, please add!\n",
-+						__func__, field);
-+				nested_vmx_result(VMfailInvalid, VMXERR_UNSUPPORTED_VMCS_COMPONENT);
-+			}
++		r = read_gva(vcpu, gva, &value, 8, &e);
++		if (r < 0) {
++			/*TODO: handle memory failure exception */
++			return r;
 +		}
 +	}
 +
++	reg = ((instr_info) >> 28) & 0xf;
++	field = vcpu->arch.regs[reg];
++
++	offset = get_vmcs12_field_offset(field);
++	if (offset < 0) {
++		nested_vmx_result(VMfailInvalid, VMXERR_UNSUPPORTED_VMCS_COMPONENT);
++		return 0;
++	}
++
++	/* TODO: check vcpu supports "VMWRITE to any supported field in the VMCS" */
++	if (vmcs_field_readonly(field)) {
++		nested_vmx_result(VMfailInvalid, VMXERR_VMWRITE_READ_ONLY_VMCS_COMPONENT);
++		return 0;
++	}
++
++	/*
++	 * Some Intel CPUs intentionally drop the reserved bits of the AR byte
++	 * fields on VMWRITE.  Emulate this behavior to ensure consistent KVM
++	 * behavior regardless of the underlying hardware, e.g. if an AR_BYTE
++	 * field is intercepted for VMWRITE but not VMREAD (in L1), then VMREAD
++	 * from L1 will return a different value than VMREAD from L2 (L1 sees
++	 * the stripped down value, L2 sees the full value as stored by KVM).
++	 */
++	if (field >= GUEST_ES_AR_BYTES && field <= GUEST_TR_AR_BYTES)
++		value &= 0x1f0ff;
++
++	if (field == EPT_POINTER)
++		setup_guest_ept(cur_shadow_vcpu, value);
++
++	vmcs12_write_any(vmcs12, field, offset, value);
++
++	if (is_emulated_fields(field)) {
++		vmx->nested.dirty_vmcs12 = true;
++		nested_vmx_result(VMsucceed, 0);
++	} else if (is_host_fields(field)){
++		nested_vmx_result(VMsucceed, 0);
++	} else {
++		pkvm_err("%s: not include emulated fields 0x%lx, please add!\n",
++			__func__, field);
++		nested_vmx_result(VMfailInvalid, VMXERR_UNSUPPORTED_VMCS_COMPONENT);
++	}
++
++out_ok:
 +	return 0;
 +}
 +
@@ -19577,36 +19655,38 @@ index 000000000000..ab4b4e40baf2
 +	int r, reg;
 +	u64 value;
 +
-+	if (check_vmx_permission(vcpu)) {
-+		if (vmx->nested.current_vmptr == INVALID_GPA) {
-+			nested_vmx_result(VMfailInvalid, 0);
++	if (!check_vmx_permission(vcpu))
++		return 0;
++
++	if (vmx->nested.current_vmptr == INVALID_GPA) {
++		nested_vmx_result(VMfailInvalid, 0);
++		return 0;
++	}
++
++	/* Decode instruction info and find the field to read */
++	reg = ((instr_info) >> 28) & 0xf;
++	field = vcpu->arch.regs[reg];
++
++	offset = get_vmcs12_field_offset(field);
++	if (offset < 0) {
++		nested_vmx_result(VMfailInvalid, VMXERR_UNSUPPORTED_VMCS_COMPONENT);
++	} else {
++		value = vmcs12_read_any(vmcs12, field, offset);
++		if (instr_info & BIT(10)) {
++			reg = ((instr_info) >> 3) & 0xf;
++			vcpu->arch.regs[reg] = value;
 +		} else {
-+			/* Decode instruction info and find the field to read */
-+			reg = ((instr_info) >> 28) & 0xf;
-+			field = vcpu->arch.regs[reg];
++			if (get_vmx_mem_address(vcpu, vmx->exit_qualification,
++						instr_info, &gva))
++				return 1;
 +
-+			offset = get_vmcs12_field_offset(field);
-+			if (offset < 0) {
-+				nested_vmx_result(VMfailInvalid, VMXERR_UNSUPPORTED_VMCS_COMPONENT);
-+			} else {
-+				value = vmcs12_read_any(vmcs12, field, offset);
-+				if (instr_info & BIT(10)) {
-+					reg = ((instr_info) >> 3) & 0xf;
-+					vcpu->arch.regs[reg] = value;
-+				} else {
-+					if (get_vmx_mem_address(vcpu, vmx->exit_qualification,
-+								instr_info, &gva))
-+						return 1;
-+
-+					r = write_gva(vcpu, gva, &value, 8, &e);
-+					if (r < 0) {
-+						/*TODO: handle memory failure exception */
-+						return r;
-+					}
-+				}
-+				nested_vmx_result(VMsucceed, 0);
++			r = write_gva(vcpu, gva, &value, 8, &e);
++			if (r < 0) {
++				/*TODO: handle memory failure exception */
++				return r;
 +			}
 +		}
++		nested_vmx_result(VMsucceed, 0);
 +	}
 +
 +	return 0;
@@ -21440,10 +21520,10 @@ index 000000000000..85a2f74c5fe4
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c b/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c
 new file mode 100644
-index 000000000000..3bf26c75ae98
+index 000000000000..814433f073db
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,469 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -21546,7 +21626,6 @@ index 000000000000..3bf26c75ae98
 +	unsigned long vm_type, bytes = sizeof(unsigned long);
 +	struct pkvm_shadow_vm *vm;
 +	struct x86_exception e;
-+	int shadow_vm_handle;
 +
 +	if (!PAGE_ALIGNED(shadow_pa) ||
 +		!PAGE_ALIGNED(shadow_size) ||
@@ -21576,11 +21655,11 @@ index 000000000000..3bf26c75ae98
 +	if (pkvm_shadow_ept_init(&vm->sept_desc))
 +		goto deinit_pgstate_pgt;
 +
-+	shadow_vm_handle = allocate_shadow_vm_handle(vm);
-+	if (shadow_vm_handle < 0)
++	vm->shadow_vm_handle = allocate_shadow_vm_handle(vm);
++	if (vm->shadow_vm_handle < 0)
 +		goto deinit_shadow_ept;
 +
-+	return shadow_vm_handle;
++	return vm->shadow_vm_handle;
 +
 +deinit_shadow_ept:
 +	pkvm_shadow_ept_deinit(&vm->sept_desc);
@@ -22744,10 +22823,10 @@ index 000000000000..970d2e770844
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
 new file mode 100644
-index 000000000000..fee0d01414dd
+index 000000000000..62eb1e192665
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
-@@ -0,0 +1,362 @@
+@@ -0,0 +1,366 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -22959,6 +23038,10 @@ index 000000000000..fee0d01414dd
 +
 +	vcpu->mode = IN_GUEST_MODE;
 +
++	/*
++	 *  FIXME: do stack cleanup as we will never return from this function.
++	 *         all the memory above pkvm_main can be reused
++	 */
 +	do {
 +		bool skip_instruction = false, guest_exit = false;
 +
@@ -23288,10 +23371,10 @@ index 000000000000..2a8f947fb17a
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmx.c b/arch/x86/kvm/vmx/pkvm/hyp/vmx.c
 new file mode 100644
-index 000000000000..4ad38578d0e7
+index 000000000000..54ff84577e50
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmx.c
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,119 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -23370,6 +23453,46 @@ index 000000000000..4ad38578d0e7
 +
 +	pkvm_rdmsrl(MSR_IA32_CR_PAT, a);
 +	vmcs_write64(HOST_IA32_PAT, a);
++}
++
++/*
++ * These failures are potentially (security-) critical so stop right here
++ * if they occur.
++ */
++void __noreturn pkvm_vmwrite_error(unsigned long field, unsigned long value)
++{
++	panic("pkvm vmwrite at 0x%lx failed: field=0x%lx val=0x%lx err=%d\n",
++	       vmcs_readl(GUEST_RIP), field, value,
++	       vmcs_read32(VM_INSTRUCTION_ERROR));
++	while (1) { };
++}
++
++void __noreturn pkvm_vmclear_error(struct vmcs *vmcs, u64 phys_addr)
++{
++	panic("pkvm vmclear at 0x%lx failed: %p/%llx\n",
++	       vmcs_readl(GUEST_RIP), vmcs, phys_addr);
++	while (1) { };
++}
++
++void __noreturn pkvm_vmptrld_error(struct vmcs *vmcs, u64 phys_addr)
++{
++	panic("pkvm vmptrld at 0x%lx failed: %p/%llx\n",
++	       vmcs_readl(GUEST_RIP), vmcs, phys_addr);
++	while (1) { };
++}
++
++void __noreturn pkvm_invvpid_error(unsigned long ext, u16 vpid, gva_t gva)
++{
++	panic("pkvm invvpid at 0x%lx failed: ext=0x%lx vpid=%u gva=0x%lx\n",
++	       vmcs_readl(GUEST_RIP), ext, vpid, gva);
++	while (1) { };
++}
++
++void __noreturn pkvm_invept_error(unsigned long ext, u64 eptp, gpa_t gpa)
++{
++	panic("pkvm invept at 0x%lx failed: ext=0x%lx eptp=0x%llx gpa=0x%llx\n",
++	       vmcs_readl(GUEST_RIP), ext, eptp, gpa);
++	while (1) { };
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmx.h b/arch/x86/kvm/vmx/pkvm/hyp/vmx.h
 new file mode 100644
@@ -23634,10 +23757,10 @@ index 000000000000..ad6ae1257a7a
 +SYM_FUNC_END(__pkvm_vmx_vcpu_run)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h b/arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h
 new file mode 100644
-index 000000000000..b99067af3a6b
+index 000000000000..a5da6466f747
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,152 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -23647,6 +23770,13 @@ index 000000000000..b99067af3a6b
 +
 +#include "memory.h"
 +#include "debug.h"
++
++/* See the asm below, it calls these directly */
++void pkvm_vmwrite_error(unsigned long field, unsigned long value);
++void pkvm_vmclear_error(struct vmcs *vmcs, u64 phys_addr);
++void pkvm_vmptrld_error(struct vmcs *vmcs, u64 phys_addr);
++void pkvm_invvpid_error(unsigned long ext, u16 vpid, gva_t gva);
++void pkvm_invept_error(unsigned long ext, u64 eptp, gpa_t gpa);
 +
 +static __always_inline unsigned long __vmcs_readl(unsigned long field)
 +{
@@ -23696,34 +23826,6 @@ index 000000000000..b99067af3a6b
 +{
 +	vmcs_checkl(field);
 +	return __vmcs_readl(field);
-+}
-+
-+static inline void pkvm_vmwrite_error(unsigned long field, unsigned long value)
-+{
-+	pkvm_err("pkvm: vmwrite failed: field=%lx val=%lx err=%d\n",
-+			field, value, vmcs_read32(VM_INSTRUCTION_ERROR));
-+}
-+
-+static inline void pkvm_vmclear_error(struct vmcs *vmcs, u64 phys_addr)
-+{
-+	pkvm_err("pkvm: vmclear failed: %p/%llx\n", vmcs, phys_addr);
-+}
-+
-+static inline void pkvm_vmptrld_error(struct vmcs *vmcs, u64 phys_addr)
-+{
-+	pkvm_err("pkvm: vmptrld failed: %p/%llx\n", vmcs, phys_addr);
-+}
-+
-+static inline void pkvm_invvpid_error(unsigned long ext, u16 vpid, gva_t gva)
-+{
-+	pkvm_err("pkvm: invvpid failed: ext=0x%lx vpid=%u gva=0x%lx\n",
-+			ext, vpid, gva);
-+}
-+
-+static inline void pkvm_invept_error(unsigned long ext, u64 eptp, gpa_t gpa)
-+{
-+	pkvm_err("pkvm: invept failed: ext=0x%lx eptp=%llx gpa=0x%llx\n",
-+			ext, eptp, gpa);
 +}
 +
 +#define vmx_asm1(insn, op1, error_args...)				\
@@ -24385,10 +24487,10 @@ index 000000000000..c6cd7f3656b0
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/pkvm_host.c b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
 new file mode 100644
-index 000000000000..91969004a751
+index 000000000000..d1eed6016760
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
-@@ -0,0 +1,1302 @@
+@@ -0,0 +1,1303 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -24412,7 +24514,7 @@ index 000000000000..91969004a751
 +
 +extern void pkvm_init_debugfs(void);
 +extern bool kernel_in_guest_mode;
-+
++extern struct vmcs *host_vmcs;
 +MODULE_LICENSE("GPL");
 +
 +struct pkvm_hyp *pkvm;
@@ -24907,6 +25009,7 @@ index 000000000000..91969004a751
 +	if (!vmx->vmcs01.vmcs)
 +		return -ENOMEM;
 +
++	host_vmcs = vmx->vmcs01.vmcs;
 +	vmx->vmcs01.msr_bitmap = pkvm_sym(pkvm_early_alloc_page)();
 +	if (!vmx->vmcs01.msr_bitmap) {
 +		pr_err("%s: No page for msr_bitmap\n", __func__);
@@ -25763,7 +25866,7 @@ index 746129ddd5ae..86299ccc97e7 100644
  	CHECK_OFFSET(posted_intr_nv, 962);
  	CHECK_OFFSET(guest_es_selector, 964);
 diff --git a/arch/x86/kvm/vmx/vmx.c b/arch/x86/kvm/vmx/vmx.c
-index 98d732b9418f..081fb83071c0 100644
+index 98d732b9418f..3749add52534 100644
 --- a/arch/x86/kvm/vmx/vmx.c
 +++ b/arch/x86/kvm/vmx/vmx.c
 @@ -48,6 +48,7 @@
@@ -26066,23 +26169,22 @@ index 98d732b9418f..081fb83071c0 100644
  
  free_vmcs:
  	free_loaded_vmcs(vmx->loaded_vmcs);
-@@ -7427,6 +7261,15 @@ static int vmx_vcpu_create(struct kvm_vcpu *vcpu)
+@@ -7427,6 +7261,14 @@ static int vmx_vcpu_create(struct kvm_vcpu *vcpu)
  	return err;
  }
  
 +static bool vmx_is_vm_type_supported(unsigned long type)
 +{
-+#ifdef CONFIG_PKVM_INTEL
 +	if (type == KVM_X86_PROTECTED_VM)
 +		return true;
-+#endif
++
 +	return type == KVM_X86_DEFAULT_VM;
 +}
 +
  #define L1TF_MSG_SMT "L1TF CPU bug present and SMT on, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html for details.\n"
  #define L1TF_MSG_L1D "L1TF CPU bug present and virtualization mitigation disabled, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html for details.\n"
  
-@@ -7458,7 +7301,13 @@ static int vmx_vm_init(struct kvm *kvm)
+@@ -7458,7 +7300,13 @@ static int vmx_vm_init(struct kvm *kvm)
  			break;
  		}
  	}
@@ -26097,7 +26199,7 @@ index 98d732b9418f..081fb83071c0 100644
  }
  
  static int __init vmx_check_processor_compat(void)
-@@ -8106,9 +7955,11 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
+@@ -8106,9 +7954,11 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
  	.hardware_disable = vmx_hardware_disable,
  	.has_emulated_msr = vmx_has_emulated_msr,
  
@@ -26109,7 +26211,7 @@ index 98d732b9418f..081fb83071c0 100644
  
  	.vcpu_precreate = vmx_vcpu_precreate,
  	.vcpu_create = vmx_vcpu_create,
-@@ -8385,6 +8236,17 @@ static __init int hardware_setup(void)
+@@ -8385,6 +8235,17 @@ static __init int hardware_setup(void)
  	}
  #endif
  
@@ -26127,7 +26229,7 @@ index 98d732b9418f..081fb83071c0 100644
  	if (!cpu_has_vmx_ple()) {
  		ple_gap = 0;
  		ple_window = 0;
-@@ -8496,6 +8358,9 @@ static __init int hardware_setup(void)
+@@ -8496,6 +8357,9 @@ static __init int hardware_setup(void)
  }
  
  static struct kvm_x86_init_ops vmx_init_ops __initdata = {
@@ -26137,7 +26239,7 @@ index 98d732b9418f..081fb83071c0 100644
  	.cpu_has_kvm_support = cpu_has_kvm_support,
  	.disabled_by_bios = vmx_disabled_by_bios,
  	.check_processor_compatibility = vmx_check_processor_compat,
-@@ -8535,6 +8400,15 @@ static void vmx_exit(void)
+@@ -8535,6 +8399,15 @@ static void vmx_exit(void)
  }
  module_exit(vmx_exit);
  
@@ -26153,7 +26255,7 @@ index 98d732b9418f..081fb83071c0 100644
  static int __init vmx_init(void)
  {
  	int r, cpu;
-@@ -8613,7 +8487,7 @@ static int __init vmx_init(void)
+@@ -8613,7 +8486,7 @@ static int __init vmx_init(void)
  	 * exposed to userspace!
  	 */
  	r = kvm_init(&vmx_init_ops, sizeof(struct vcpu_vmx),
@@ -26179,10 +26281,10 @@ index e2b04f4c0fef..0227729f5b20 100644
  static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)			\
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..d2d9394adc3a
+index 000000000000..8b24d7b35f00
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,245 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -26291,6 +26393,8 @@ index 000000000000..d2d9394adc3a
 +	_cpu_based_exec_control &= ~CPU_BASED_CR3_LOAD_EXITING;
 +#endif
 +	_cpu_based_exec_control &= ~CPU_BASED_CR3_STORE_EXITING;
++	_cpu_based_exec_control &= ~CPU_BASED_USE_IO_BITMAPS;
++	_cpu_based_exec_control &= ~CPU_BASED_UNCOND_IO_EXITING;
 +
 +	if (!(_cpu_based_exec_control & CPU_BASED_TPR_SHADOW))
 +		_cpu_based_2nd_exec_control &= ~(
@@ -26484,7 +26588,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..7bc90362b36d 100644
+index 7144e5166813..d9c9cb5959b1 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26495,19 +26599,21 @@ index 7144e5166813..7bc90362b36d 100644
  #include <clocksource/hyperv_timer.h>
  
  #define CREATE_TRACE_POINTS
-@@ -4551,6 +4552,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
+@@ -4551,6 +4552,13 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
  	case KVM_CAP_X86_NOTIFY_VMEXIT:
  		r = kvm_caps.has_notify_vmexit;
  		break;
 +	case KVM_CAP_VM_TYPES:
++#ifdef CONFIG_PKVM_GUEST
++		r |= BIT(KVM_X86_PROTECTED_VM);
++#else
 +		r = BIT(KVM_X86_DEFAULT_VM);
-+		if (static_call(kvm_x86_is_vm_type_supported)(KVM_X86_PROTECTED_VM))
-+			r |= BIT(KVM_X86_PROTECTED_VM);
++#endif
 +		break;
  	default:
  		break;
  	}
-@@ -9704,11 +9710,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9704,11 +9712,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -26561,7 +26667,7 @@ index 7144e5166813..7bc90362b36d 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -12448,9 +12496,15 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12498,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -26569,7 +26675,6 @@ index 7144e5166813..7bc90362b36d 100644
 +#ifdef CONFIG_PKVM_INTEL_FORCE_PROTECTED_VM
 +	type = KVM_X86_PROTECTED_VM;
 +#endif
-+
 +	if (!static_call(kvm_x86_is_vm_type_supported)(type))
  		return -EINVAL;
  
@@ -26578,7 +26683,7 @@ index 7144e5166813..7bc90362b36d 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12643,6 +12697,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12698,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -26586,7 +26691,7 @@ index 7144e5166813..7bc90362b36d 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12777,10 +12832,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12833,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {
@@ -29235,5 +29340,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.42.0
+2.34.1
 

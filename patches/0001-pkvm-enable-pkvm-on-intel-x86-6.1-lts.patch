@@ -1,4 +1,4 @@
-From 9fa78832921ef025d419e674f56ace7250a003dd Mon Sep 17 00:00:00 2001
+From 4a01127f138d8c5daf516077244baac20c527fe6 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -33,7 +33,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
  arch/x86/coco/pkvm/Makefile                   |    3 +
- arch/x86/coco/pkvm/pkvm.c                     |  114 +
+ arch/x86/coco/pkvm/pkvm.c                     |  134 +
  arch/x86/coco/pkvm/pkvmcall.S                 |   42 +
  arch/x86/coco/tdx/tdx.c                       |  115 +-
  arch/x86/coco/virt_exception.c                |  126 +
@@ -85,8 +85,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1069 +++++
- arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   70 +
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1079 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  468 +++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
@@ -111,7 +111,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1554 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1598 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -119,7 +119,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  155 +
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  469 +++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
- arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  187 +
+ arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  193 +
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 +
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.c             |  213 +
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
@@ -162,7 +162,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  include/linux/kvm_host.h                      |   40 +-
  include/linux/kvm_types.h                     |    1 +
  include/uapi/linux/kvm.h                      |    1 +
- include/uapi/linux/kvm_para.h                 |   11 +
+ include/uapi/linux/kvm_para.h                 |   12 +
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25226 insertions(+), 838 deletions(-)
+ 163 files changed, 25308 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1339,10 +1339,10 @@ index 000000000000..7896f6d4f4b2
 +obj-y += pkvm.o pkvmcall.o
 diff --git a/arch/x86/coco/pkvm/pkvm.c b/arch/x86/coco/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..dc6681bf7182
+index 000000000000..8eaf2cf2d123
 --- /dev/null
 +++ b/arch/x86/coco/pkvm/pkvm.c
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,134 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#undef pr_fmt
@@ -1358,7 +1358,10 @@ index 000000000000..dc6681bf7182
 +#include <asm/pgtable.h>
 +#include <asm/virt_exception.h>
 +
++#define USE_INTERNAL_VE 1
++
 +static bool pkvm_guest_detected;
++static struct ve_info *gve;
 +
 +bool pkvm_is_protected_guest(void)
 +{
@@ -1399,11 +1402,18 @@ index 000000000000..dc6681bf7182
 +
 +	__pkvm_module_call(PKVM_GHC_GET_VE_INFO, &out);
 +
++#ifndef USE_INTERNAL_VE
 +	/* Transfer the output parameters */
 +	ve->exit_reason = out.rcx;
 +	ve->exit_qual   = out.rdx;
 +	ve->gla         = out.r8;
 +	ve->gpa         = out.r9;
++#else
++	ve->exit_reason = gve->exit_reason;
++	ve->exit_qual   = gve->exit_qual;
++	ve->gla		= gve->gla;
++	ve->gpa		= gve->gpa;
++#endif
 +}
 +
 +static bool mmio_write(int size, unsigned long addr, unsigned long val)
@@ -1451,6 +1461,16 @@ index 000000000000..dc6681bf7182
 +
 +	pr_info("enabling PKVM guest support!\n");
 +	pkvm_guest_detected = true;
++
++#ifdef USE_INTERNAL_VE
++	gve = __get_free_pages(GFP_KERNEL, 0);
++	if (!gve)
++		panic("Out of memory?\n");
++	/* kvm_hypercall2(PKVM_GHC_SHARE_MEM, __pa(gve), PAGE_SIZE); */
++	int r = kvm_hypercall2(PKVM_GHC_SET_VE_INFO, __pa(gve));
++	if (!r)
++		panic("PKVM_GHC_SET_VE_INFO returns %d\n", r);
++#endif
 +
 +	ve_x86_ops.mmio_read = mmio_read;
 +	ve_x86_ops.mmio_write = mmio_write;
@@ -10763,10 +10783,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..2366929e1f2d
+index 000000000000..bffdcae4e91e
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1069 @@
+@@ -0,0 +1,1079 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -11759,6 +11779,11 @@ index 000000000000..2366929e1f2d
 +	return true;
 +}
 +
++static int is_mmio(u64 spte)
++{
++	return ((spte & shadow_mmio_mask) == shadow_mmio_value);
++}
++
 +enum sept_handle_ret
 +pkvm_handle_shadow_ept_violation(struct shadow_vcpu_state *shadow_vcpu, u64 l2_gpa, u64 exit_quali)
 +{
@@ -11778,6 +11803,11 @@ index 000000000000..2366929e1f2d
 +	if (phys == INVALID_ADDR)
 +		/* Geust EPT not valid, back to kvm-high */
 +		goto out;
++
++	if (is_mmio(gprot)) {
++		ret = PKVM_MMIO;
++		goto out;
++	}
 +
 +	if (is_access_violation(gprot, exit_quali))
 +		/* Guest EPT error, refuse to handle in shadow ept */
@@ -11838,10 +11868,10 @@ index 000000000000..2366929e1f2d
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.h b/arch/x86/kvm/vmx/pkvm/hyp/ept.h
 new file mode 100644
-index 000000000000..a0b5e701fa31
+index 000000000000..b3a08bca677c
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.h
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,71 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -11864,6 +11894,7 @@ index 000000000000..a0b5e701fa31
 +	PKVM_NOT_HANDLED,
 +	PKVM_HANDLED,
 +	PKVM_INJECT_EPT_MISC,
++	PKVM_MMIO,
 +};
 +
 +void host_ept_lock(void);
@@ -18568,10 +18599,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..8a9695657272
+index 000000000000..4fe5b04778d7
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1554 @@
+@@ -0,0 +1,1598 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -19472,11 +19503,14 @@ index 000000000000..8a9695657272
 +			pkvm_flush_shadow_ept(&shadow_vcpu->vm->sept_desc);
 +
 +			/*
-+			 * Write the #VE information physical address.
++			 * Write the #VE information physical address IF #VE is
++			 * supported. If not, we trap and inject exceptions.
++			 * The use case is primarily MMIO.
 +			 */
 +			if (shadow_vcpu_is_protected(shadow_vcpu)) {
 +				memset(&shadow_vcpu->ve_info, 0, sizeof(shadow_vcpu->ve_info));
-+				vmcs_write64(VE_INFO_ADDR, __pkvm_pa(&shadow_vcpu->ve_info));
++				if (shadow_vcpu->shadow_features & SHADOW_FEATURE_VE)
++					vmcs_write64(VE_INFO_ADDR, __pkvm_pa(&shadow_vcpu->ve_info));
 +			}
 +
 +			shadow_vcpu->last_cpu = vcpu->cpu;
@@ -19900,6 +19934,7 @@ index 000000000000..8a9695657272
 +	enum sept_handle_ret ret = pkvm_handle_shadow_ept_violation(shadow_vcpu,
 +								    l2_gpa, exit_quali);
 +	bool handled = false;
++	u32 intr_info;
 +
 +	switch (ret) {
 +	case PKVM_INJECT_EPT_MISC: {
@@ -19915,6 +19950,22 @@ index 000000000000..8a9695657272
 +			vmcs_write32(VM_EXIT_REASON, EXIT_REASON_EPT_MISCONFIG);
 +		break;
 +	}
++	case PKVM_MMIO:
++		if (shadow_vcpu->shadow_features & SHADOW_FEATURE_VE) {
++			handled = true;
++			break;
++		}
++		/* Fill it up.. */
++		shadow_vcpu->gve_info->exit_reason = vmcs_read32(VM_EXIT_REASON);
++		shadow_vcpu->gve_info->exit_qual = exit_quali;
++		shadow_vcpu->gve_info->gla = vmcs_readl(GUEST_LINEAR_ADDRESS);
++		shadow_vcpu->gve_info->gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
++
++		/* Fire it up.. */
++		intr_info = VE_VECTOR | INTR_INFO_VALID_MASK | INTR_TYPE_HARD_EXCEPTION;
++		vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr_info);
++		handled = true;
++		break;
 +	case PKVM_HANDLED:
 +		handled = true;
 +		break;
@@ -19935,7 +19986,10 @@ index 000000000000..8a9695657272
 +	struct shadow_vcpu_state *shadow_vcpu = to_pkvm_hvcpu(vcpu)->current_shadow_vcpu;
 +	struct pkvm_ve_info *ve;
 +
-+	ve = &shadow_vcpu->ve_info;
++	if (shadow_vcpu->gve_info)
++		ve = shadow_vcpu->gve_info;
++	else
++		ve = &shadow_vcpu->ve_info;
 +
 +	kvm_rcx_write(vcpu, ve->exit_reason);
 +	kvm_rdx_write(vcpu, ve->exit_qual);
@@ -19948,6 +20002,23 @@ index 000000000000..8a9695657272
 +	 * protected VM handles this #VE, so another #VE can continue to happen.
 +	 */
 +	ve->valid = 0;
++}
++
++static int pkvm_set_ve_info(struct kvm_vcpu *vcpu, u64 addr)
++{
++	struct shadow_vcpu_state *shadow_vcpu = to_pkvm_hvcpu(vcpu)->current_shadow_vcpu;
++	unsigned long gve;
++	u64 prot;
++
++	if (shadow_vcpu->gve_info)
++		return -EEXIST;
++
++	pkvm_pgtable_lookup(&shadow_vcpu->vept, addr, &gve, &prot, NULL);
++	if (gve == INVALID_ADDR)
++		return -ENOENT;
++
++	shadow_vcpu->gve_info = (struct pkvm_ve_info *)gve;
++	return 0;
 +}
 +
 +static bool nested_handle_vmcall(struct kvm_vcpu *vcpu)
@@ -19979,6 +20050,10 @@ index 000000000000..8a9695657272
 +		break;
 +	case PKVM_GHC_GET_VE_INFO:
 +		pkvm_get_ve_info(vcpu);
++		handled = true;
++		break;
++	case PKVM_GHC_SET_VE_INFO:
++		ret = pkvm_set_ve_info(vcpu, a0);
 +		handled = true;
 +		break;
 +	default:
@@ -22011,10 +22086,10 @@ index 000000000000..af81ce58c72f
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
 new file mode 100644
-index 000000000000..5948f1b39953
+index 000000000000..8e1ef6426bf1
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,193 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -22083,13 +22158,19 @@ index 000000000000..5948f1b39953
 +	u8 cached_vmcs12[VMCS12_SIZE] __aligned(PAGE_SIZE);
 +
 +	struct pkvm_ve_info ve_info;
++	struct pkvm_ve_info *gve_info;
 +
 +	/* The last cpu this vmcs02 runs with */
 +	int last_cpu;
 +
 +	/* point to the kvm_vcpu associated with this shadow_vcpu */
 +	struct kvm_vcpu *vcpu;
++
++	/* Some cpu feature bits */
++	u16 shadow_features;
 +} __aligned(PAGE_SIZE);
++
++#define SHADOW_FEATURE_VE 1
 +
 +#define SHADOW_VM_HANDLE_SHIFT		32
 +#define SHADOW_VCPU_INDEX_MASK		((1UL << SHADOW_VM_HANDLE_SHIFT) - 1)
@@ -28560,10 +28641,10 @@ index 0d5d4419139a..22dcc759fd07 100644
  #ifdef KVM_CAP_IRQ_ROUTING
  
 diff --git a/include/uapi/linux/kvm_para.h b/include/uapi/linux/kvm_para.h
-index 960c7e93d1a9..a06f4a9e5033 100644
+index 960c7e93d1a9..57bdce3619f4 100644
 --- a/include/uapi/linux/kvm_para.h
 +++ b/include/uapi/linux/kvm_para.h
-@@ -31,6 +31,17 @@
+@@ -31,6 +31,18 @@
  #define KVM_HC_SCHED_YIELD		11
  #define KVM_HC_MAP_GPA_RANGE		12
  
@@ -28577,6 +28658,7 @@ index 960c7e93d1a9..a06f4a9e5033 100644
 +#define PKVM_GHC_IOREAD			PKVM_GHC_NUM(3)
 +#define PKVM_GHC_IOWRITE		PKVM_GHC_NUM(4)
 +#define PKVM_GHC_GET_VE_INFO		PKVM_GHC_NUM(5)
++#define PKVM_GHC_SET_VE_INFO		PKVM_GHC_NUM(6)
 +
  /*
   * hypercalls use architecture specific

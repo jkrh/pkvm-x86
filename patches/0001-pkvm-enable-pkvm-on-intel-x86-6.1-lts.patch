@@ -1,4 +1,4 @@
-From a04df04aa90ecc42cf531e83e411da05b986f25b Mon Sep 17 00:00:00 2001
+From 41b6ef4912fe5d9c2df14e70cb230b6c1799fb52 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -64,7 +64,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/umwait.c                  |    3 -
  arch/x86/kernel/idt.c                         |    2 +-
  arch/x86/kernel/kvm.c                         |   37 +-
- arch/x86/kernel/msr.c                         |   23 +-
+ arch/x86/kernel/msr.c                         |   55 +-
  arch/x86/kernel/setup.c                       |    7 +
  arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
@@ -142,7 +142,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1303 ++++++
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
- arch/x86/kvm/vmx/vmx.c                        |  269 +-
+ arch/x86/kvm/vmx/vmx.c                        |  307 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
@@ -161,8 +161,10 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  include/linux/intel-iommu.h                   |  863 ++++
  include/linux/kvm_host.h                      |   40 +-
  include/linux/kvm_types.h                     |    1 +
+ include/linux/ramlog.h                        |   13 +
  include/uapi/linux/kvm.h                      |    1 +
  include/uapi/linux/kvm_para.h                 |   12 +
+ kernel/printk/printk.c                        |    6 +
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
@@ -173,7 +175,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25321 insertions(+), 838 deletions(-)
+ 165 files changed, 25410 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -255,6 +257,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  create mode 100644 arch/x86/kvm/vmx/pkvm/pkvm_host.c
  create mode 100644 arch/x86/kvm/vmx/vmx_lib.h
  create mode 100644 include/linux/intel-iommu.h
+ create mode 100644 include/linux/ramlog.h
  create mode 100644 virt/kvm/pkvm/buddy_memory.h
  create mode 100644 virt/kvm/pkvm/gfp.h
  rename {arch/arm64/kvm/hyp/nvhe => virt/kvm/pkvm}/page_alloc.c (56%)
@@ -9923,7 +9926,7 @@ index 796e2f9e8761..277c842f9918 100644
  	}
  	if (cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN, "x86/kvm:online",
 diff --git a/arch/x86/kernel/msr.c b/arch/x86/kernel/msr.c
-index ed8ac6bcbafb..a3b633f414c0 100644
+index ed8ac6bcbafb..f7757843c816 100644
 --- a/arch/x86/kernel/msr.c
 +++ b/arch/x86/kernel/msr.c
 @@ -100,7 +100,7 @@ static int filter_write(u32 reg)
@@ -9935,11 +9938,13 @@ index ed8ac6bcbafb..a3b633f414c0 100644
  	pr_warn("See https://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git/about for details.\n");
  
  	return 0;
-@@ -222,6 +222,27 @@ static int msr_open(struct inode *inode, struct file *file)
+@@ -222,6 +222,59 @@ static int msr_open(struct inode *inode, struct file *file)
  	return 0;
  }
  
 +#ifdef CONFIG_DEBUG_KERNEL
++
++#include <linux/ramlog.h>
 +
 +u64 debug_read_msr(u32 msr)
 +{
@@ -9956,6 +9961,36 @@ index ed8ac6bcbafb..a3b633f414c0 100644
 +		return ~0;
 +	else
 +		return EAX_EDX_VAL(val, low, high);
++}
++
++char *debug_dump_vmx_msr_state(void)
++{
++	char *s = __rlogp();
++
++	__ramlog("MSR_IA32_VMX_BASIC			0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_BASIC));
++	__ramlog("MSR_IA32_VMX_PINBASED_CTLS		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_PINBASED_CTLS));
++	__ramlog("MSR_IA32_VMX_TRUE_PINBASED_CTLS	0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_TRUE_PINBASED_CTLS));
++	__ramlog("MSR_IA32_VMX_PROCBASED_CTLS		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_TRUE_PROCBASED_CTLS));
++	__ramlog("MSR_IA32_VMX_TRUE_PROCBASED_CTLS	0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_TRUE_PROCBASED_CTLS));
++	__ramlog("MSR_IA32_VMX_ENTRY_CTLS		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_ENTRY_CTLS));
++	__ramlog("MSR_IA32_VMX_TRUE_ENTRY_CTLS		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_TRUE_ENTRY_CTLS));
++	__ramlog("MSR_IA32_VMX_EXIT_CTLS		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_EXIT_CTLS));
++	__ramlog("MSR_IA32_VMX_TRUE_EXIT_CTLS		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_TRUE_EXIT_CTLS));
++	__ramlog("MSR_IA32_VMX_PROCBASED_CTLS3		0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_PROCBASED_CTLS3));
++	__ramlog("MSR_IA32_VMX_MISC			0x%llx\n",
++		debug_read_msr(MSR_IA32_VMX_MISC));
++
++	return s;
 +}
 +
 +#endif
@@ -25954,7 +25989,7 @@ index 746129ddd5ae..86299ccc97e7 100644
  	CHECK_OFFSET(posted_intr_nv, 962);
  	CHECK_OFFSET(guest_es_selector, 964);
 diff --git a/arch/x86/kvm/vmx/vmx.c b/arch/x86/kvm/vmx/vmx.c
-index 98d732b9418f..3749add52534 100644
+index 98d732b9418f..13c5122ef156 100644
 --- a/arch/x86/kvm/vmx/vmx.c
 +++ b/arch/x86/kvm/vmx/vmx.c
 @@ -48,6 +48,7 @@
@@ -26122,7 +26157,8 @@ index 98d732b9418f..3749add52534 100644
  
  	if (!cpu_has_sgx())
 -		_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_ENCLS_EXITING;
--
++		setting.cpu_based_2nd_exec_ctrl_opt &= ~SECONDARY_EXEC_ENCLS_EXITING;
+ 
 -	if (_cpu_based_exec_control & CPU_BASED_ACTIVATE_TERTIARY_CONTROLS)
 -		_cpu_based_3rd_exec_control =
 -			adjust_vmx_controls64(KVM_OPTIONAL_VMX_TERTIARY_VM_EXEC_CONTROL,
@@ -26151,8 +26187,7 @@ index 98d732b9418f..3749add52534 100644
 -				MSR_IA32_VMX_ENTRY_CTLS,
 -				&_vmentry_control))
 -		return -EIO;
-+		setting.cpu_based_2nd_exec_ctrl_opt &= ~SECONDARY_EXEC_ENCLS_EXITING;
- 
+-
 -	for (i = 0; i < ARRAY_SIZE(vmcs_entry_exit_pairs); i++) {
 -		u32 n_ctrl = vmcs_entry_exit_pairs[i].entry_control;
 -		u32 x_ctrl = vmcs_entry_exit_pairs[i].exit_control;
@@ -26327,7 +26362,7 @@ index 98d732b9418f..3749add52534 100644
  	.cpu_has_kvm_support = cpu_has_kvm_support,
  	.disabled_by_bios = vmx_disabled_by_bios,
  	.check_processor_compatibility = vmx_check_processor_compat,
-@@ -8535,6 +8399,15 @@ static void vmx_exit(void)
+@@ -8535,6 +8399,53 @@ static void vmx_exit(void)
  }
  module_exit(vmx_exit);
  
@@ -26337,13 +26372,51 @@ index 98d732b9418f..3749add52534 100644
 +{
 +	return vmcs_read64(field);
 +}
++#include <linux/ramlog.h>
++
++u64 debug_read_vmcs(u64 field)
++{
++	return vmcs_read64(field);
++}
++
++char *debug_dump_vmcs(void)
++{
++	char *s = __rlogp();
++	u64 cr4;
++
++	asm("mov %%cr4,%0" : "=r"(cr4));
++	if (!(cr4 & (1 << X86_CR4_VMXE_BIT))) {
++		__ramlog("vmx not enabled\n");
++		return s;
++	}
++	__ramlog("VIRTUAL_PROCESSOR_ID			0x%x\n",
++		vmcs_read16(VIRTUAL_PROCESSOR_ID));
++	__ramlog("VM_ENTRY_MSR_LOAD_ADDR		0x%llx\n",
++		vmcs_read64(VM_ENTRY_MSR_LOAD_ADDR));
++	__ramlog("VM_EXIT_MSR_STORE_ADDR		0x%llx\n",
++		vmcs_read64(VM_EXIT_MSR_STORE_ADDR));
++	__ramlog("EPT_POINTER				0x%llx\n",
++		vmcs_read64(EPT_POINTER));
++	__ramlog("PIN_BASED_VM_EXEC_CONTROL		0x%x\n",
++		vmcs_read32(PIN_BASED_VM_EXEC_CONTROL));
++	__ramlog("CPU_BASED_VM_EXEC_CONTROL		0x%x\n",
++		vmcs_read32(CPU_BASED_VM_EXEC_CONTROL));
++	__ramlog("TERTIARY_VM_EXEC_CONTROL		0x%llx\n",
++		vmcs_read64(TERTIARY_VM_EXEC_CONTROL));
++	__ramlog("VM_ENTRY_CONTROLS			0x%x\n",
++		vmcs_read32(VM_ENTRY_CONTROLS));
++	__ramlog("VM_EXIT_CONTROLS			0x%x\n",
++		vmcs_read32(VM_EXIT_CONTROLS));
++
++	return s;
++}
 +
 +#endif
 +
  static int __init vmx_init(void)
  {
  	int r, cpu;
-@@ -8613,7 +8486,7 @@ static int __init vmx_init(void)
+@@ -8613,7 +8524,7 @@ static int __init vmx_init(void)
  	 * exposed to userspace!
  	 */
  	r = kvm_init(&vmx_init_ops, sizeof(struct vcpu_vmx),
@@ -28641,6 +28714,25 @@ index 3ca3db020e0e..e556fcf5036a 100644
  };
  
  struct kvm_vcpu_stat_generic {
+diff --git a/include/linux/ramlog.h b/include/linux/ramlog.h
+new file mode 100644
+index 000000000000..23bbfbcb07bd
+--- /dev/null
++++ b/include/linux/ramlog.h
+@@ -0,0 +1,13 @@
++#ifdef CONFIG_DEBUG_KERNEL
++extern char __rlog[];
++extern int __rp;
++#define __ramlog(...)						\
++	if ((__rp + 128) >= PAGE_SIZE)				\
++		__rp = 0;					\
++	__rp += snprintf(&__rlog[__rp], 128, __VA_ARGS__)
++
++static inline char *__rlogp(void) { return &__rlog[__rp]; }
++#else
++#define __ramlog(...)
++static inline char *__rlogp(void) { return NULL; }
++#endif
 diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
 index 0d5d4419139a..22dcc759fd07 100644
 --- a/include/uapi/linux/kvm.h
@@ -28676,6 +28768,23 @@ index 960c7e93d1a9..57bdce3619f4 100644
  /*
   * hypercalls use architecture specific
   */
+diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
+index cc53fb77f77c..1e4b72c1ba10 100644
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -408,6 +408,12 @@ static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
+ static char *log_buf = __log_buf;
+ static u32 log_buf_len = __LOG_BUF_LEN;
+ 
++/* Tiny ram log */
++#ifdef CONFIG_DEBUG_KERNEL
++char __rlog[PAGE_SIZE];
++int __rp = 0;
++#endif
++
+ /*
+  * Define the average message size. This only affects the number of
+  * descriptors that will be available. Underestimating is better than
 diff --git a/tools/arch/x86/include/uapi/asm/kvm.h b/tools/arch/x86/include/uapi/asm/kvm.h
 index 46de10a809ec..f513dc0ae610 100644
 --- a/tools/arch/x86/include/uapi/asm/kvm.h

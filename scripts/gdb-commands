@@ -1,0 +1,52 @@
+target remote localhost:1234
+set confirm off
+set scheduler-locking step
+alias reconnect = target remote localhost:1234
+
+# target extended-remote localhost:1234
+# alias reset = monitor system_reset
+# alias reconnect = target extended-remote localhost:1234
+
+define-prefix vmx
+define-prefix vmx vmcs
+define-prefix vmx msr
+
+define vmx vmcs
+  if $argc == 0
+    print "error: vmx vmcs [format] <offset>"
+  else
+    set $format=""
+    if $argc == 2
+      set $format="$arg0"
+      set $offset=$arg1
+    end
+    if $argc == 1
+      set $offset=$arg0
+    end
+    eval "print%s debug_read_vmx(%lu)", $format, $offset
+  end
+end
+
+define vmx vmcs dump
+  printf "%s", debug_dump_vmcs()
+end
+
+define vmx msr
+  if $argc == 0
+    print "error: vmx msr [format] <reg>"
+  else
+    set $format=""
+    if $argc == 2
+      set $format="$arg0"
+      set $reg=$arg1
+    end
+    if $argc == 1
+      set $reg=$arg0
+    end
+    eval "print%s debug_read_msr(%lu)", $format, $reg
+  end
+end
+
+define vmx msr dump
+  printf "%s", debug_dump_vmx_msr_state()
+end

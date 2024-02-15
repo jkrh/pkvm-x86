@@ -65,4 +65,4 @@ poorman:
 		$(BASE_DIR)/scripts/poorman.sh
 
 gdb:
-	@gdb -ex "target remote localhost:1234" -ex "set confirm off" $(VMLINUX)
+	@gdb -x $(BASE_DIR)/scripts/gdb-commands $(VMLINUX)

@@ -1,4 +1,4 @@
-From fc3ef910a99bcb13b86af780c04932e9f75fc77b Mon Sep 17 00:00:00 2001
+From 5e878370a722c8b5880b9f579067fb41b4951878 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -79,7 +79,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
- arch/x86/kvm/vmx/pkvm/hyp/Makefile            |   79 +
+ arch/x86/kvm/vmx/pkvm/hyp/Makefile            |   81 +
  arch/x86/kvm/vmx/pkvm/hyp/bug.h               |   23 +
  arch/x86/kvm/vmx/pkvm/hyp/cpu.h               |   53 +
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
@@ -175,7 +175,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 25427 insertions(+), 838 deletions(-)
+ 165 files changed, 25429 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -10523,10 +10523,10 @@ index 000000000000..6ca49fffb4dd
 +$(obj-intel-pkvm): $(obj)/pkvm_constants.h
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/Makefile b/arch/x86/kvm/vmx/pkvm/hyp/Makefile
 new file mode 100644
-index 000000000000..682e34a7901f
+index 000000000000..e8716dd2b695
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/Makefile
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,81 @@
 +# SPDX-License-Identifier: GPL-2.0
 +
 +KVM_PKVM = virt/kvm/pkvm
@@ -10572,6 +10572,8 @@ index 000000000000..682e34a7901f
 +
 +pkvm-rename-obj 	:= $(patsubst %.o,%.pkvm.o,$(pkvm-hyp-obj))
 +pkvm-obj		:= pkvm.o
++
++ccflags-y += -DDEBUG
 +
 +$(dir-obj): FORCE
 +ifndef CONFIG_PKVM_INTEL_DEBUG

@@ -1,4 +1,4 @@
-From 4a01127f138d8c5daf516077244baac20c527fe6 Mon Sep 17 00:00:00 2001
+From a04df04aa90ecc42cf531e83e411da05b986f25b Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -29,16 +29,16 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/arm64/kvm/hyp/nvhe/setup.c               |   28 +-
  arch/arm64/kvm/pkvm.c                         |   87 +-
  arch/arm64/mm/init.c                          |    2 +-
- arch/x86/Kconfig                              |   11 +
+ arch/x86/Kconfig                              |   19 +
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
  arch/x86/coco/pkvm/Makefile                   |    3 +
- arch/x86/coco/pkvm/pkvm.c                     |  134 +
+ arch/x86/coco/pkvm/pkvm.c                     |  131 +
  arch/x86/coco/pkvm/pkvmcall.S                 |   42 +
  arch/x86/coco/tdx/tdx.c                       |  115 +-
  arch/x86/coco/virt_exception.c                |  126 +
- arch/x86/configs/nixos_defconfig              | 3528 +++++++++++++++++
- arch/x86/configs/nixos_guest_defconfig        | 3510 ++++++++++++++++
+ arch/x86/configs/nixos_defconfig              | 3529 +++++++++++++++++
+ arch/x86/configs/nixos_guest_defconfig        | 3511 ++++++++++++++++
  arch/x86/configs/x86_64_defconfig             |    1 +
  arch/x86/crypto/blake2s-glue.c                |    6 +
  arch/x86/include/asm/coco.h                   |    1 +
@@ -144,7 +144,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  269 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
- arch/x86/kvm/vmx/vmx_lib.h                    |  245 ++
+ arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   71 +-
  arch/x86/mm/init_64.c                         |    2 +-
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25308 insertions(+), 838 deletions(-)
+ 163 files changed, 25321 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1244,10 +1244,10 @@ index 4b4651ee47f2..f939487b24b4 100644
  	/*
  	 * sparse_init() tries to allocate memory from memblock, so must be
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
-index 4c9bfc4be58d..f430abaad5aa 100644
+index 4c9bfc4be58d..6eb0a6ec22ec 100644
 --- a/arch/x86/Kconfig
 +++ b/arch/x86/Kconfig
-@@ -896,6 +896,17 @@ config INTEL_TDX_GUEST
+@@ -896,6 +896,25 @@ config INTEL_TDX_GUEST
  	  memory contents and CPU state. TDX guests are protected from
  	  some attacks from the VMM.
  
@@ -1261,6 +1261,14 @@ index 4c9bfc4be58d..f430abaad5aa 100644
 +	  Support running as a protected guest under Protected KVM.
 +	  Without this support, the guest kernel can not boot or run
 +	  under Protected KVM.
++
++config PKVM_EMULATED_VE
++	bool "PKVM Emulate #VE"
++	depends on PKVM_INTEL || PKVM_GUEST
++	default n
++	help
++	  Emulate virtualized exceptions from PKVM on CPUs that do
++	  not support the hardware feature.
 +
  endif # HYPERVISOR_GUEST
  
@@ -1339,10 +1347,10 @@ index 000000000000..7896f6d4f4b2
 +obj-y += pkvm.o pkvmcall.o
 diff --git a/arch/x86/coco/pkvm/pkvm.c b/arch/x86/coco/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..8eaf2cf2d123
+index 000000000000..e46b397e70d2
 --- /dev/null
 +++ b/arch/x86/coco/pkvm/pkvm.c
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,131 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#undef pr_fmt
@@ -1357,8 +1365,6 @@ index 000000000000..8eaf2cf2d123
 +#include <asm/insn-eval.h>
 +#include <asm/pgtable.h>
 +#include <asm/virt_exception.h>
-+
-+#define USE_INTERNAL_VE 1
 +
 +static bool pkvm_guest_detected;
 +static struct ve_info *gve;
@@ -1402,7 +1408,7 @@ index 000000000000..8eaf2cf2d123
 +
 +	__pkvm_module_call(PKVM_GHC_GET_VE_INFO, &out);
 +
-+#ifndef USE_INTERNAL_VE
++#ifndef CONFIG_PKVM_EMULATED_VE
 +	/* Transfer the output parameters */
 +	ve->exit_reason = out.rcx;
 +	ve->exit_qual   = out.rdx;
@@ -1462,7 +1468,7 @@ index 000000000000..8eaf2cf2d123
 +	pr_info("enabling PKVM guest support!\n");
 +	pkvm_guest_detected = true;
 +
-+#ifdef USE_INTERNAL_VE
++#ifdef CONFIG_PKVM_EMULATED_VE
 +	gve = __get_free_pages(GFP_KERNEL, 0);
 +	if (!gve)
 +		panic("Out of memory?\n");
@@ -1471,7 +1477,6 @@ index 000000000000..8eaf2cf2d123
 +	if (!r)
 +		panic("PKVM_GHC_SET_VE_INFO returns %d\n", r);
 +#endif
-+
 +	ve_x86_ops.mmio_read = mmio_read;
 +	ve_x86_ops.mmio_write = mmio_write;
 +	ve_x86_ops.handle_virt_exception = pkvm_handle_virt_exception;
@@ -1812,10 +1817,10 @@ index 000000000000..15db92c24787
 +}
 diff --git a/arch/x86/configs/nixos_defconfig b/arch/x86/configs/nixos_defconfig
 new file mode 100644
-index 000000000000..ac8ef52dc95b
+index 000000000000..3461fb350a24
 --- /dev/null
 +++ b/arch/x86/configs/nixos_defconfig
-@@ -0,0 +1,3528 @@
+@@ -0,0 +1,3529 @@
 +CONFIG_KERNEL_ZSTD=y
 +CONFIG_SYSVIPC=y
 +CONFIG_POSIX_MQUEUE=y
@@ -1935,6 +1940,7 @@ index 000000000000..ac8ef52dc95b
 +CONFIG_KVM_INTEL=y
 +CONFIG_PKVM_INTEL=y
 +CONFIG_PKVM_INTEL_DEBUG=y
++CONFIG_PKVM_EMULATED_VE=y
 +CONFIG_X86_SGX_KVM=y
 +CONFIG_KVM_AMD=y
 +CONFIG_KPROBES=y
@@ -5346,10 +5352,10 @@ index 000000000000..ac8ef52dc95b
 +CONFIG_MEMTEST=y
 diff --git a/arch/x86/configs/nixos_guest_defconfig b/arch/x86/configs/nixos_guest_defconfig
 new file mode 100644
-index 000000000000..cfb6a2c684d6
+index 000000000000..4c2f0cc7f414
 --- /dev/null
 +++ b/arch/x86/configs/nixos_guest_defconfig
-@@ -0,0 +1,3510 @@
+@@ -0,0 +1,3511 @@
 +CONFIG_KERNEL_ZSTD=y
 +CONFIG_SYSVIPC=y
 +CONFIG_POSIX_MQUEUE=y
@@ -5398,6 +5404,7 @@ index 000000000000..cfb6a2c684d6
 +CONFIG_PARAVIRT_SPINLOCKS=y
 +CONFIG_PVH=y
 +CONFIG_PKVM_GUEST=y
++CONFIG_PKVM_EMULATED_VE=y
 +CONFIG_NR_CPUS=384
 +CONFIG_X86_REROUTE_FOR_BROKEN_BOOT_IRQS=y
 +# CONFIG_X86_MCE_AMD is not set
@@ -26362,10 +26369,10 @@ index e2b04f4c0fef..0227729f5b20 100644
  static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)			\
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..8b24d7b35f00
+index 000000000000..a8cf4cafb0c1
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,251 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -26472,16 +26479,22 @@ index 000000000000..8b24d7b35f00
 +#ifndef CONFIG_STRICT_KERNEL_RWX
 +	/* Until pgd monitoring is in place */
 +	_cpu_based_exec_control &= ~CPU_BASED_CR3_LOAD_EXITING;
-+#endif
 +	_cpu_based_exec_control &= ~CPU_BASED_CR3_STORE_EXITING;
-+	_cpu_based_exec_control &= ~CPU_BASED_USE_IO_BITMAPS;
-+	_cpu_based_exec_control &= ~CPU_BASED_UNCOND_IO_EXITING;
++#endif
 +
 +	if (!(_cpu_based_exec_control & CPU_BASED_TPR_SHADOW))
 +		_cpu_based_2nd_exec_control &= ~(
 +				SECONDARY_EXEC_APIC_REGISTER_VIRT |
 +				SECONDARY_EXEC_VIRTUALIZE_X2APIC_MODE |
 +				SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY);
++
++#ifdef CONFIG_PKVM_EMULATED_VE
++	_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_EPT_VIOLATION_VE;
++
++	/* Let host run without pointless traps */
++	_cpu_based_exec_control &= ~CPU_BASED_USE_IO_BITMAPS;
++	_cpu_based_exec_control &= ~CPU_BASED_UNCOND_IO_EXITING;
++#endif
 +
 +	rdmsr_safe(MSR_IA32_VMX_EPT_VPID_CAP,
 +		&vmx_cap->ept, &vmx_cap->vpid);
@@ -29422,5 +29435,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.42.0
 

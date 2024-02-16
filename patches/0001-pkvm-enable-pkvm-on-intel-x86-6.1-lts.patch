@@ -1,4 +1,4 @@
-From e14cfba3feae9c0ecf9e95597404ede9f60411ce Mon Sep 17 00:00:00 2001
+From 42fdadb1772a25418a374fca5996aeb9c86925b1 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -64,7 +64,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/umwait.c                  |    3 -
  arch/x86/kernel/idt.c                         |    2 +-
  arch/x86/kernel/kvm.c                         |   37 +-
- arch/x86/kernel/msr.c                         |   55 +-
+ arch/x86/kernel/msr.c                         |  103 +-
  arch/x86/kernel/setup.c                       |    7 +
  arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
@@ -161,7 +161,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  include/linux/intel-iommu.h                   |  863 ++++
  include/linux/kvm_host.h                      |   40 +-
  include/linux/kvm_types.h                     |    1 +
- include/linux/ramlog.h                        |   13 +
+ include/linux/ramlog.h                        |   15 +
  include/uapi/linux/kvm.h                      |    1 +
  include/uapi/linux/kvm_para.h                 |   12 +
  kernel/printk/printk.c                        |    6 +
@@ -175,7 +175,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 25432 insertions(+), 838 deletions(-)
+ 165 files changed, 25482 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9929,7 +9929,7 @@ index 796e2f9e8761..277c842f9918 100644
  	}
  	if (cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN, "x86/kvm:online",
 diff --git a/arch/x86/kernel/msr.c b/arch/x86/kernel/msr.c
-index ed8ac6bcbafb..f7757843c816 100644
+index ed8ac6bcbafb..2ffb5b77b5fc 100644
 --- a/arch/x86/kernel/msr.c
 +++ b/arch/x86/kernel/msr.c
 @@ -100,7 +100,7 @@ static int filter_write(u32 reg)
@@ -9941,7 +9941,7 @@ index ed8ac6bcbafb..f7757843c816 100644
  	pr_warn("See https://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git/about for details.\n");
  
  	return 0;
-@@ -222,6 +222,59 @@ static int msr_open(struct inode *inode, struct file *file)
+@@ -222,6 +222,107 @@ static int msr_open(struct inode *inode, struct file *file)
  	return 0;
  }
  
@@ -9966,32 +9966,80 @@ index ed8ac6bcbafb..f7757843c816 100644
 +		return EAX_EDX_VAL(val, low, high);
 +}
 +
++static inline int msr_true_ctls_avail(void)
++{
++	return !!(debug_read_msr(MSR_IA32_VMX_BASIC) & BIT_ULL(55));
++}
++
++static inline int msr_ctl2_avail(void)
++{
++	return !!(debug_read_msr(MSR_IA32_VMX_PROCBASED_CTLS) & BIT_ULL(63));
++}
++
++static inline int msr_ept_vpid_cap_avail(void)
++{
++	return msr_ctl2_avail() &&
++		(debug_read_msr(MSR_IA32_VMX_PROCBASED_CTLS2) &
++		 (BIT_ULL(33) || BIT_ULL(37)));
++}
++
++static inline int msr_vmfunc_avail(void)
++{
++	return msr_ctl2_avail() &&
++		(debug_read_msr(MSR_IA32_VMX_PROCBASED_CTLS2) & BIT_ULL(45));
++}
++
++static inline int msr_ctl3_avail(void)
++{
++	return !!(debug_read_msr(MSR_IA32_VMX_PROCBASED_CTLS) & BIT_ULL(49));
++}
++
++#define debug_pr_msr_unavail_1(_msr) \
++	__ramlog(_msr " is not available\n")
++#define debug_pr_msr_1(_msr_str, _msr) \
++	__ramlog("%-40s\t0x%016llx\n", _msr_str, debug_read_msr(_msr))
++
++#define debug_pr_msr_unavail(msr) debug_pr_msr_unavail_1(#msr)
++#define debug_pr_msr(msr) debug_pr_msr_1(#msr, msr)
++#define debug_pr_msr_if(_cond, _msr)			\
++	do {						\
++		if ((_cond)) {				\
++			debug_pr_msr_1(#_msr, _msr);	\
++		} else {				\
++			debug_pr_msr_unavail_1(#_msr);	\
++		}					\
++	} while(0)
++
 +char *debug_dump_vmx_msr_state(void)
 +{
 +	char *s = __rlogp();
 +
-+	__ramlog("MSR_IA32_VMX_BASIC			0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_BASIC));
-+	__ramlog("MSR_IA32_VMX_PINBASED_CTLS		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_PINBASED_CTLS));
-+	__ramlog("MSR_IA32_VMX_TRUE_PINBASED_CTLS	0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_TRUE_PINBASED_CTLS));
-+	__ramlog("MSR_IA32_VMX_PROCBASED_CTLS		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_TRUE_PROCBASED_CTLS));
-+	__ramlog("MSR_IA32_VMX_TRUE_PROCBASED_CTLS	0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_TRUE_PROCBASED_CTLS));
-+	__ramlog("MSR_IA32_VMX_ENTRY_CTLS		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_ENTRY_CTLS));
-+	__ramlog("MSR_IA32_VMX_TRUE_ENTRY_CTLS		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_TRUE_ENTRY_CTLS));
-+	__ramlog("MSR_IA32_VMX_EXIT_CTLS		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_EXIT_CTLS));
-+	__ramlog("MSR_IA32_VMX_TRUE_EXIT_CTLS		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_TRUE_EXIT_CTLS));
-+	__ramlog("MSR_IA32_VMX_PROCBASED_CTLS3		0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_PROCBASED_CTLS3));
-+	__ramlog("MSR_IA32_VMX_MISC			0x%llx\n",
-+		debug_read_msr(MSR_IA32_VMX_MISC));
++	debug_pr_msr(MSR_IA32_VMX_BASIC);
++	debug_pr_msr(MSR_IA32_VMX_PINBASED_CTLS);
++	debug_pr_msr(MSR_IA32_VMX_PROCBASED_CTLS);
++	debug_pr_msr(MSR_IA32_VMX_EXIT_CTLS);
++	debug_pr_msr(MSR_IA32_VMX_ENTRY_CTLS);
++
++	debug_pr_msr_if(msr_true_ctls_avail(),
++			MSR_IA32_VMX_TRUE_PINBASED_CTLS);
++	debug_pr_msr_if(msr_true_ctls_avail(),
++			MSR_IA32_VMX_TRUE_PROCBASED_CTLS);
++	debug_pr_msr_if(msr_true_ctls_avail(),
++			MSR_IA32_VMX_TRUE_EXIT_CTLS);
++	debug_pr_msr_if(msr_true_ctls_avail(),
++			MSR_IA32_VMX_TRUE_ENTRY_CTLS);
++
++	debug_pr_msr(MSR_IA32_VMX_MISC);
++	debug_pr_msr(MSR_IA32_VMX_CR0_FIXED0);
++	debug_pr_msr(MSR_IA32_VMX_CR0_FIXED1);
++	debug_pr_msr(MSR_IA32_VMX_CR4_FIXED0);
++	debug_pr_msr(MSR_IA32_VMX_CR4_FIXED1);
++	debug_pr_msr(MSR_IA32_VMX_VMCS_ENUM);
++
++	debug_pr_msr_if(msr_ctl2_avail(), MSR_IA32_VMX_PROCBASED_CTLS2);
++	debug_pr_msr_if(msr_ept_vpid_cap_avail(), MSR_IA32_VMX_EPT_VPID_CAP);
++	debug_pr_msr_if(msr_vmfunc_avail(), MSR_IA32_VMX_VMFUNC);
++	debug_pr_msr_if(msr_ctl3_avail(), MSR_IA32_VMX_PROCBASED_CTLS3);
 +
 +	return s;
 +}
@@ -28738,17 +28786,19 @@ index 3ca3db020e0e..e556fcf5036a 100644
  struct kvm_vcpu_stat_generic {
 diff --git a/include/linux/ramlog.h b/include/linux/ramlog.h
 new file mode 100644
-index 000000000000..23bbfbcb07bd
+index 000000000000..7d26360678a2
 --- /dev/null
 +++ b/include/linux/ramlog.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,15 @@
 +#ifdef CONFIG_DEBUG_KERNEL
 +extern char __rlog[];
 +extern int __rp;
-+#define __ramlog(...)						\
-+	if ((__rp + 128) >= PAGE_SIZE)				\
-+		__rp = 0;					\
-+	__rp += snprintf(&__rlog[__rp], 128, __VA_ARGS__)
++#define __ramlog(...)							\
++	do {								\
++		if ((__rp + 128) >= PAGE_SIZE)				\
++			__rp = 0;					\
++		__rp += snprintf(&__rlog[__rp], 128, __VA_ARGS__);	\
++	} while (0)
 +
 +static inline char *__rlogp(void) { return &__rlog[__rp]; }
 +#else
@@ -29566,5 +29616,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.42.0
 

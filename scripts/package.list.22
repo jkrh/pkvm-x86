@@ -346,3 +346,5 @@ curl
 pciutils
 bonnie++
 qemu-system-x86
+pahole
+python3-venv

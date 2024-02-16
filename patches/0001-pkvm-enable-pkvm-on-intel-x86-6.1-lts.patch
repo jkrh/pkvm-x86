@@ -1,4 +1,4 @@
-From 5e878370a722c8b5880b9f579067fb41b4951878 Mon Sep 17 00:00:00 2001
+From e14cfba3feae9c0ecf9e95597404ede9f60411ce Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -33,7 +33,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
  arch/x86/coco/pkvm/Makefile                   |    3 +
- arch/x86/coco/pkvm/pkvm.c                     |  131 +
+ arch/x86/coco/pkvm/pkvm.c                     |  134 +
  arch/x86/coco/pkvm/pkvmcall.S                 |   42 +
  arch/x86/coco/tdx/tdx.c                       |  115 +-
  arch/x86/coco/virt_exception.c                |  126 +
@@ -175,7 +175,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 25429 insertions(+), 838 deletions(-)
+ 165 files changed, 25432 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1350,10 +1350,10 @@ index 000000000000..7896f6d4f4b2
 +obj-y += pkvm.o pkvmcall.o
 diff --git a/arch/x86/coco/pkvm/pkvm.c b/arch/x86/coco/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..e46b397e70d2
+index 000000000000..0f3a09ee3fac
 --- /dev/null
 +++ b/arch/x86/coco/pkvm/pkvm.c
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,134 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#undef pr_fmt
@@ -1361,6 +1361,8 @@ index 000000000000..e46b397e70d2
 +
 +#include <linux/cpufeature.h>
 +#include <linux/kvm_para.h>
++#include <linux/gfp.h>
++#include <linux/mm.h>
 +#include <asm/coco.h>
 +#include <asm/vmx.h>
 +#include <asm/pkvm.h>
@@ -1470,13 +1472,14 @@ index 000000000000..e46b397e70d2
 +
 +	pr_info("enabling PKVM guest support!\n");
 +	pkvm_guest_detected = true;
-+
 +#ifdef CONFIG_PKVM_EMULATED_VE
-+	gve = __get_free_pages(GFP_KERNEL, 0);
++	int r;
++
++	gve = page_to_virt(alloc_pages(GFP_KERNEL, 0));
 +	if (!gve)
 +		panic("Out of memory?\n");
 +	/* kvm_hypercall2(PKVM_GHC_SHARE_MEM, __pa(gve), PAGE_SIZE); */
-+	int r = kvm_hypercall2(PKVM_GHC_SET_VE_INFO, __pa(gve));
++	r = kvm_hypercall1(PKVM_GHC_SET_VE_INFO, __pa(gve));
 +	if (!r)
 +		panic("PKVM_GHC_SET_VE_INFO returns %d\n", r);
 +#endif
@@ -29563,5 +29566,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.42.0
+2.34.1
 

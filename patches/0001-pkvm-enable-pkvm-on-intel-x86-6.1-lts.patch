@@ -1,4 +1,4 @@
-From 9381dc767e189ead1cdb8c55683df6b6072ba312 Mon Sep 17 00:00:00 2001
+From dc4643b1ec4917822b22665484c59989030dc770 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -88,7 +88,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1079 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
- arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  475 +++
+ arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  477 +++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.c        |  374 ++
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.h        |   67 +
@@ -111,7 +111,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1615 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1620 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -144,8 +144,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  260 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
- arch/x86/kvm/vmx/vmx_debug.c                  |  182 +
- arch/x86/kvm/vmx/vmx_debug.h                  |   10 +
+ arch/x86/kvm/vmx/vmx_debug.c                  |  254 ++
+ arch/x86/kvm/vmx/vmx_debug.h                  |   15 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   71 +-
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25534 insertions(+), 838 deletions(-)
+ 167 files changed, 25618 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -12017,10 +12017,10 @@ index 000000000000..87252724a501
 +SYM_CODE_END(nmi_handler)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 new file mode 100644
-index 000000000000..93c06cdcee0f
+index 000000000000..90effe86c8ef
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
-@@ -0,0 +1,475 @@
+@@ -0,0 +1,477 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -12490,6 +12490,8 @@ index 000000000000..93c06cdcee0f
 +	pkvm_info("Protected host configuration complete on cpu with info:\n");
 +	pkvm_info("%s", debug_dump_vmcs());
 +#endif
++
++	debug_validate_vmcs();
 +
 +	ret = pkvm_setup_lapic(pcpu, vcpu->cpu);
 +out:
@@ -18605,10 +18607,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..4c09299acf89
+index 000000000000..db553682f84b
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1615 @@
+@@ -0,0 +1,1620 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18617,6 +18619,7 @@ index 000000000000..4c09299acf89
 +#include <pkvm.h>
 +#include <asm/pkvm.h>
 +#include <capabilities.h>
++#include <vmx/vmx_debug.h>
 +#include "pkvm_hyp.h"
 +#include "nested.h"
 +#include "cpu.h"
@@ -19754,6 +19757,8 @@ index 000000000000..4c09299acf89
 +	if (check_vmx_permission(vcpu))
 +		nested_vmx_run(vcpu, false);
 +
++	debug_validate_vmcs();
++
 +	return 0;
 +}
 +
@@ -19761,6 +19766,8 @@ index 000000000000..4c09299acf89
 +{
 +	if (check_vmx_permission(vcpu))
 +		nested_vmx_run(vcpu, true);
++
++	debug_validate_vmcs();
 +
 +	return 0;
 +}
@@ -26369,10 +26376,10 @@ index e2b04f4c0fef..0227729f5b20 100644
  static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)			\
 diff --git a/arch/x86/kvm/vmx/vmx_debug.c b/arch/x86/kvm/vmx/vmx_debug.c
 new file mode 100644
-index 000000000000..a303ffaf3f34
+index 000000000000..ffe40d12da1b
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_debug.c
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,254 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +
 +#include <linux/kernel.h>
@@ -26555,12 +26562,84 @@ index 000000000000..a303ffaf3f34
 +	return s;
 +}
 +
++static u32 vmcs_check_32bit_zero_bits(u32 vmcs_val, u64 msr_val)
++{
++	return ~vmcs_val & msr_val;
++}
++
++static u32 vmcs_check_32bit_one_bits(u32 vmcs_val, u64 msr_val)
++{
++	return vmcs_val & ~(msr_val >> 32);
++}
++
++static int do_vmcs_check_32bit_register(char *vmcs_name, u32 vmcs,
++					 char *msr_name, u32 msr)
++{
++	int ret = 0;
++
++	u32 vmcs_val = debug_read_vmcs(vmcs);
++	u64 msr_val = debug_read_msr(msr);
++
++	u32 zb = vmcs_check_32bit_zero_bits(vmcs_val, msr_val);
++	u32 ob = vmcs_check_32bit_one_bits(vmcs_val, msr_val);
++
++	if (zb) {
++		pr_err("%s contains invalid zero bits: 0x%x\n", vmcs_name, zb);
++		ret = -1;
++	}
++	if (ob) {
++		pr_err("%s contains invalid one bits: 0x%x\n", vmcs_name, ob);
++		ret = -1;
++	}
++
++	if (ret) {
++		pr_err("%s\t0x%016x", vmcs_name, vmcs_val);
++		pr_err("%s\t0x%016llx", msr_name, msr_val);
++	}
++
++	return ret;
++}
++
++#define vmcs_check_32bit_register(_vmcs, _msr)			\
++	do {							\
++		do_vmcs_check_32bit_register(#_vmcs, _vmcs,	\
++					     #_msr, _msr);	\
++	} while (0)
++
++void debug_validate_vmcs_registers(void)
++{
++	if (!msr_true_ctls_avail()) {
++		vmcs_check_32bit_register(PIN_BASED_VM_EXEC_CONTROL,
++					  MSR_IA32_VMX_PINBASED_CTLS);
++		vmcs_check_32bit_register(CPU_BASED_VM_EXEC_CONTROL,
++					  MSR_IA32_VMX_PROCBASED_CTLS);
++		vmcs_check_32bit_register(VM_ENTRY_CONTROLS,
++					  MSR_IA32_VMX_ENTRY_CTLS);
++		vmcs_check_32bit_register(VM_EXIT_CONTROLS,
++					  MSR_IA32_VMX_EXIT_CTLS);
++	} else {
++		vmcs_check_32bit_register(PIN_BASED_VM_EXEC_CONTROL,
++					  MSR_IA32_VMX_TRUE_PINBASED_CTLS);
++		vmcs_check_32bit_register(CPU_BASED_VM_EXEC_CONTROL,
++					  MSR_IA32_VMX_TRUE_PROCBASED_CTLS);
++		vmcs_check_32bit_register(VM_ENTRY_CONTROLS,
++					  MSR_IA32_VMX_TRUE_ENTRY_CTLS);
++		vmcs_check_32bit_register(VM_EXIT_CONTROLS,
++					  MSR_IA32_VMX_TRUE_EXIT_CTLS);
++	}
++
++	if (vmcs_secondary_exec_ctl_enabled()) {
++		vmcs_check_32bit_register(SECONDARY_VM_EXEC_CONTROL,
++					  MSR_IA32_VMX_PROCBASED_CTLS2);
++	}
++}
++
 diff --git a/arch/x86/kvm/vmx/vmx_debug.h b/arch/x86/kvm/vmx/vmx_debug.h
 new file mode 100644
-index 000000000000..94d58b6a72e7
+index 000000000000..0ac4caeae6a9
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_debug.h
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,15 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __KVM_X86_VMX_DEBUG_H
 +#define __KVM_X86_VMX_DEBUG_H
@@ -26568,6 +26647,11 @@ index 000000000000..94d58b6a72e7
 +#ifdef CONFIG_DEBUG_KERNEL
 +char *debug_dump_vmcs(void);
 +char *debug_dump_vmx_msr_state(void);
++void debug_validate_vmcs_registers(void);
++
++#define debug_validate_vmcs debug_validate_vmcs_registers
++#else
++#define debug_validate_vmcs
 +#endif
 +
 +#endif /* __KVM_X86_VMX_DEBUG_H */

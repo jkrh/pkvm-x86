@@ -1,4 +1,4 @@
-From dc4643b1ec4917822b22665484c59989030dc770 Mon Sep 17 00:00:00 2001
+From cc8a086009dfa1a3db535426dd5870d51da156ae Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -88,7 +88,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1079 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
- arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  477 +++
+ arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.c        |  374 ++
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.h        |   67 +
@@ -111,7 +111,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1620 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1621 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -145,7 +145,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx.c                        |  260 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
  arch/x86/kvm/vmx/vmx_debug.c                  |  254 ++
- arch/x86/kvm/vmx/vmx_debug.h                  |   15 +
+ arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   71 +-
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25618 insertions(+), 838 deletions(-)
+ 167 files changed, 25616 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -12017,10 +12017,10 @@ index 000000000000..87252724a501
 +SYM_CODE_END(nmi_handler)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 new file mode 100644
-index 000000000000..90effe86c8ef
+index 000000000000..85b84234e40b
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
-@@ -0,0 +1,477 @@
+@@ -0,0 +1,472 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -12486,13 +12486,8 @@ index 000000000000..90effe86c8ef
 +
 +	ept_sync_global();
 +
-+#ifdef CONFIG_DEBUG_KERNEL
 +	pkvm_info("Protected host configuration complete on cpu with info:\n");
 +	pkvm_info("%s", debug_dump_vmcs());
-+#endif
-+
-+	debug_validate_vmcs();
-+
 +	ret = pkvm_setup_lapic(pcpu, vcpu->cpu);
 +out:
 +	spin_unlock(&pkvm_init_lock);
@@ -18607,10 +18602,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..db553682f84b
+index 000000000000..298145b44885
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1620 @@
+@@ -0,0 +1,1621 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -19220,8 +19215,10 @@ index 000000000000..db553682f84b
 +		break;
 +	case SECONDARY_VM_EXEC_CONTROL:
 +		val &= ~NESTED_UNSUPPORTED_2NDEXEC;
-+		/* Enable the #VE, but only protected VM will use it. */
++		/* Enable the #VE if available but only protected VM will use it. */
++#ifdef PKVM_EMULATED_VE
 +		val |= SECONDARY_EXEC_EPT_VIOLATION_VE;
++#endif
 +		break;
 +	}
 +	return val;
@@ -19757,8 +19754,6 @@ index 000000000000..db553682f84b
 +	if (check_vmx_permission(vcpu))
 +		nested_vmx_run(vcpu, false);
 +
-+	debug_validate_vmcs();
-+
 +	return 0;
 +}
 +
@@ -19767,6 +19762,7 @@ index 000000000000..db553682f84b
 +	if (check_vmx_permission(vcpu))
 +		nested_vmx_run(vcpu, true);
 +
++	pkvm_info("pkvm launcing a protected VM\n%s\n", debug_dump_vmcs());
 +	debug_validate_vmcs();
 +
 +	return 0;
@@ -26636,10 +26632,10 @@ index 000000000000..ffe40d12da1b
 +
 diff --git a/arch/x86/kvm/vmx/vmx_debug.h b/arch/x86/kvm/vmx/vmx_debug.h
 new file mode 100644
-index 000000000000..0ac4caeae6a9
+index 000000000000..df881823752e
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_debug.h
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,17 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __KVM_X86_VMX_DEBUG_H
 +#define __KVM_X86_VMX_DEBUG_H
@@ -26648,10 +26644,12 @@ index 000000000000..0ac4caeae6a9
 +char *debug_dump_vmcs(void);
 +char *debug_dump_vmx_msr_state(void);
 +void debug_validate_vmcs_registers(void);
-+
 +#define debug_validate_vmcs debug_validate_vmcs_registers
 +#else
 +#define debug_validate_vmcs
++static inline void char *debug_dump_vmcs(void) { return NULL; }
++static inline void char *debug_dump_vmx_msr_state(void) { return NULL; }
++static inline void debug_validate_vmcs_registers(void) { return NULL; }
 +#endif
 +
 +#endif /* __KVM_X86_VMX_DEBUG_H */
@@ -29761,5 +29759,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.42.0
+2.34.1
 

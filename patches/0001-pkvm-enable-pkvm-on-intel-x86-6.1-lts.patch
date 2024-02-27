@@ -1,4 +1,4 @@
-From cc8a086009dfa1a3db535426dd5870d51da156ae Mon Sep 17 00:00:00 2001
+From 19af1ec35e545e7f02f5b08958e5663bb672fb56 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -72,10 +72,10 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/Kconfig                          |   33 +
  arch/x86/kvm/Makefile                         |    2 +
  arch/x86/kvm/mmu.h                            |   16 +
- arch/x86/kvm/mmu/mmu.c                        |   47 +-
+ arch/x86/kvm/mmu/mmu.c                        |   48 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |    7 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   11 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -85,7 +85,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1079 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1084 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -111,7 +111,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1621 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1631 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -144,7 +144,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  260 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
- arch/x86/kvm/vmx/vmx_debug.c                  |  254 ++
+ arch/x86/kvm/vmx/vmx_debug.c                  |  256 ++
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25616 insertions(+), 838 deletions(-)
+ 167 files changed, 25638 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -10237,7 +10237,7 @@ index 59804be91b5b..a8ef25726236 100644
  			       X86_CR4_SMEP | X86_CR4_SMAP | X86_CR4_PKE)
  
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d30325e297a0..2c89e6f2c457 100644
+index d30325e297a0..4d86ce06b301 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -255,18 +255,6 @@ static inline bool kvm_available_flush_tlb_with_range(void)
@@ -10298,7 +10298,11 @@ index d30325e297a0..2c89e6f2c457 100644
  	__direct_pte_prefetch(vcpu, sp, sptep);
  }
  
-@@ -4243,13 +4236,19 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
+@@ -4240,16 +4233,23 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
+ 	       mmu_invalidate_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
+ }
+ 
++__attribute__((optimize(1)))
  static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  {
  	bool is_tdp_mmu_fault = is_tdp_mmu(vcpu->arch.mmu);
@@ -10319,7 +10323,7 @@ index d30325e297a0..2c89e6f2c457 100644
  	if (page_fault_handle_page_track(vcpu, fault))
  		return RET_PF_EMULATE;
  
-@@ -4291,6 +4290,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
+@@ -4291,6 +4291,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
  		r = __direct_map(vcpu, fault);
  	}
  
@@ -10339,7 +10343,7 @@ index d30325e297a0..2c89e6f2c457 100644
  out_unlock:
  	if (is_tdp_mmu_fault)
  		read_unlock(&vcpu->kvm->mmu_lock);
-@@ -6428,7 +6440,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
+@@ -6428,7 +6441,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
  			kvm_zap_one_rmap_spte(kvm, rmap_head, sptep);
  
  			if (kvm_available_flush_tlb_with_range())
@@ -10376,7 +10380,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..15639983c03e 100644
+index c3b0f973375b..4c9c0a43a7c8 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -10401,6 +10405,24 @@ index c3b0f973375b..15639983c03e 100644
  	else
  		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
  					 fault->pfn, iter->old_spte, fault->prefetch, true,
+@@ -1120,6 +1125,7 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
+  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
+  * page tables and SPTEs to translate the faulting guest physical address.
+  */
++__attribute__((optimize(0)))
+ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+ {
+ 	struct kvm_mmu *mmu = vcpu->arch.mmu;
+@@ -1133,6 +1139,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+ 
+ 	rcu_read_lock();
+ 
++	pr_info("%s() gpa 0x%llx fault, walking pgd 0x%llx/0x%llx\n", __func__,
++		fault->addr, mmu->root.hpa, (u64)phys_to_virt(mmu->root.hpa));
++
+ 	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
+ 		if (fault->nx_huge_page_workaround_enabled)
+ 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
 diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
 index 4a663812562d..44770625e276 100644
 --- a/arch/x86/kvm/svm/svm.c
@@ -10782,10 +10804,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..bffdcae4e91e
+index 000000000000..796dbc12ff12
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1079 @@
+@@ -0,0 +1,1084 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -11148,6 +11170,7 @@ index 000000000000..bffdcae4e91e
 +	return 0;
 +}
 +
++__attribute__((optimize(0)))
 +int handle_host_ept_violation(struct kvm_vcpu *vcpu, bool *skip_instruction)
 +{
 +	unsigned long hva, hpa, gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
@@ -11162,7 +11185,7 @@ index 000000000000..bffdcae4e91e
 +	if (is_memory) {
 +		hva = gfn_to_hva(vcpu->kvm, gpa >> PAGE_SHIFT);
 +		pkvm_err("%s: host memory access violation for 0x%lx/0x%lx at 0x%lx\n",
-+			 __func__, gpa, hva, eip);
++			 __func__, hva, gpa, eip);
 +		return -EPERM;
 +	}
 +
@@ -11700,6 +11723,7 @@ index 000000000000..bffdcae4e91e
 +	return 0;
 +}
 +
++__attribute__((optimize(0)))
 +static bool allow_shadow_ept_mapping(struct pkvm_shadow_vm *vm,
 +				     u64 gpa, unsigned long hpa,
 +				     unsigned long size)
@@ -11783,6 +11807,7 @@ index 000000000000..bffdcae4e91e
 +	return ((spte & shadow_mmio_mask) == shadow_mmio_value);
 +}
 +
++__attribute__((optimize(0)))
 +enum sept_handle_ret
 +pkvm_handle_shadow_ept_violation(struct shadow_vcpu_state *shadow_vcpu, u64 l2_gpa, u64 exit_quali)
 +{
@@ -11799,10 +11824,12 @@ index 000000000000..bffdcae4e91e
 +	pkvm_spin_lock(&vm->lock);
 +
 +	pkvm_pgtable_lookup(vept, l2_gpa, &phys, &gprot, &level);
-+	if (phys == INVALID_ADDR)
-+		/* Geust EPT not valid, back to kvm-high */
++	if (phys == INVALID_ADDR) {
++		/* Guest EPT not valid, back to kvm-high (direct_page_fault)*/
++		pr_info("%s() pgtable walk of 0x%llx failed for pgd 0x%lx\n", __func__,
++			l2_gpa, vept->root_pa);
 +		goto out;
-+
++	}
 +	if (is_mmio(gprot)) {
 +		ret = PKVM_MMIO;
 +		goto out;
@@ -13036,7 +13063,7 @@ index 000000000000..d9303bd8bf20
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/iommu.c b/arch/x86/kvm/vmx/pkvm/hyp/iommu.c
 new file mode 100644
-index 000000000000..6556ee9f4884
+index 000000000000..cd5ad0f281bc
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/iommu.c
 @@ -0,0 +1,2372 @@
@@ -14717,12 +14744,12 @@ index 000000000000..6556ee9f4884
 +
 +	switch (granu) {
 +	case DMA_TLB_GLOBAL_FLUSH:
-+		pkvm_dbg("pkvm: %s: iommu%d: global\n", __func__, iommu->iommu.seq_id);
++//		pkvm_dbg("pkvm: %s: iommu%d: global\n", __func__, iommu->iommu.seq_id);
 +		ret = sync_shadow_id(iommu, 0, IOMMU_LM_MAX_VADDR, 0, NULL);
 +		break;
 +	case DMA_TLB_DSI_FLUSH:
-+		pkvm_dbg("pkvm: %s: iommu%d: domain selective did %u\n",
-+			 __func__, iommu->iommu.seq_id, did);
++//		pkvm_dbg("pkvm: %s: iommu%d: domain selective did %u\n",
++//			 __func__, iommu->iommu.seq_id, did);
 +
 +		/* optimization: walk just the needed devices, not the entire bdf space */
 +		list_for_each_entry(p, &iommu->ptdev_head, iommu_node)
@@ -14732,8 +14759,8 @@ index 000000000000..6556ee9f4884
 +	case DMA_TLB_PSI_FLUSH:
 +		data.vaddr = addr & mask;
 +		data.vaddr_end = (addr | ~mask) + 1;
-+		pkvm_dbg("pkvm: %s: iommu%d: page selective did %u start 0x%lx end 0x%lx\n",
-+			 __func__, iommu->iommu.seq_id, did, data.vaddr, data.vaddr_end);
++//		pkvm_dbg("pkvm: %s: iommu%d: page selective did %u start 0x%lx end 0x%lx\n",
++//			 __func__, iommu->iommu.seq_id, did, data.vaddr, data.vaddr_end);
 +
 +		/* optimization: walk just the needed devices, not the entire bdf space */
 +		list_for_each_entry(p, &iommu->ptdev_head, iommu_node)
@@ -14741,8 +14768,8 @@ index 000000000000..6556ee9f4884
 +				ret = sync_shadow_id(iommu, p->bdf, p->bdf + 1, did, &data);
 +		break;
 +	default:
-+		pkvm_err("pkvm: %s: iommu%d: invalid granularity %lld\n",
-+			__func__, iommu->iommu.seq_id, granu >> DMA_TLB_FLUSH_GRANU_OFFSET);
++//		pkvm_err("pkvm: %s: iommu%d: invalid granularity %lld\n",
++//			__func__, iommu->iommu.seq_id, granu >> DMA_TLB_FLUSH_GRANU_OFFSET);
 +		ret = -EINVAL;
 +		break;
 +	}
@@ -18602,10 +18629,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..298145b44885
+index 000000000000..205bff412a81
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1621 @@
+@@ -0,0 +1,1631 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -19977,7 +20004,12 @@ index 000000000000..298145b44885
 +		break;
 +	}
 +	case PKVM_MMIO:
-+		if (shadow_vcpu->shadow_features & SHADOW_FEATURE_VE) {
++		if (!shadow_vcpu->gve_info) {
++			pkvm_err("#VE emulated MMIO without active gve\n");
++			handled = true;
++			break;
++		}
++		if (shadow_vcpu->gve_info->valid == 0xffffffff) {
 +			handled = true;
 +			break;
 +		}
@@ -19986,6 +20018,7 @@ index 000000000000..298145b44885
 +		shadow_vcpu->gve_info->exit_qual = exit_quali;
 +		shadow_vcpu->gve_info->gla = vmcs_readl(GUEST_LINEAR_ADDRESS);
 +		shadow_vcpu->gve_info->gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
++		shadow_vcpu->gve_info->valid = 0xffffffff;
 +
 +		/* Fire it up.. */
 +		intr_info = VE_VECTOR | INTR_INFO_VALID_MASK | INTR_TYPE_HARD_EXCEPTION;
@@ -20118,6 +20151,7 @@ index 000000000000..298145b44885
 +	return false;
 +}
 +
++//__attribute__((optimize(0)))
 +int nested_vmexit(struct kvm_vcpu *vcpu, bool *skip_instruction)
 +{
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -20125,12 +20159,15 @@ index 000000000000..298145b44885
 +	struct shadow_vcpu_state *cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
 +	struct vmcs *vmcs02 = (struct vmcs *)cur_shadow_vcpu->vmcs02;
 +	struct vmcs12 *vmcs12 = (struct vmcs12 *)cur_shadow_vcpu->cached_vmcs12;
++	u64 fgpa;
 +
 +	switch (vmx->exit_reason.full) {
 +	case EXIT_REASON_EPT_VIOLATION:
 +		/* EPT violation can be handled by pkvm, no need back to kvm-high */
-+		if (nested_handle_ept_violation(cur_shadow_vcpu,
-+						vmcs_read64(GUEST_PHYSICAL_ADDRESS),
++		fgpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
++		pkvm_info("guest ept violation 0x%llx q 0x%lx\n", fgpa,
++			 vmx->exit_qualification);
++		if (nested_handle_ept_violation(cur_shadow_vcpu, fgpa,
 +						vmx->exit_qualification))
 +			return 0;
 +		break;
@@ -26372,10 +26409,10 @@ index e2b04f4c0fef..0227729f5b20 100644
  static inline void lname##_controls_set(struct vcpu_vmx *vmx, u##bits val)			\
 diff --git a/arch/x86/kvm/vmx/vmx_debug.c b/arch/x86/kvm/vmx/vmx_debug.c
 new file mode 100644
-index 000000000000..ffe40d12da1b
+index 000000000000..dcf4c155f6a6
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_debug.c
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,256 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +
 +#include <linux/kernel.h>
@@ -26552,6 +26589,8 @@ index 000000000000..ffe40d12da1b
 +	ramlog_vmcs(CPU_BASED_VM_EXEC_CONTROL);
 +	ramlog_vmcs(VM_ENTRY_CONTROLS);
 +	ramlog_vmcs(VM_EXIT_CONTROLS);
++	ramlog_vmcs(GUEST_LINEAR_ADDRESS);
++	ramlog_vmcs(GUEST_PHYSICAL_ADDRESS);
 +	ramlog_vmcs_if(vmcs_secondary_exec_ctl_enabled(), SECONDARY_VM_EXEC_CONTROL);
 +	ramlog_vmcs_if(vmcs_tertiary_exec_ctl_enabled(), TERTIARY_VM_EXEC_CONTROL);
 +

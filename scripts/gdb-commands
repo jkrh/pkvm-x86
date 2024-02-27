@@ -23,7 +23,7 @@ define vmx vmcs
     if $argc == 1
       set $offset=$arg0
     end
-    eval "print%s debug_read_vmx(%lu)", $format, $offset
+    eval "print%s debug_read_vmcs(%lu)", $format, $offset
   end
 end
 

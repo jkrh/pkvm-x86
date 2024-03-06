@@ -1,4 +1,4 @@
-From e677be57227b261fb7ba150870a72ded71f8f2cf Mon Sep 17 00:00:00 2001
+From 749d46c8be1bc613904e1650efc07d672f955255 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -111,7 +111,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1637 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1636 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -125,7 +125,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  402 ++
+ arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  404 ++
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.h            |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  136 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
@@ -148,7 +148,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |   77 +-
+ arch/x86/kvm/x86.c                            |   83 +-
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25159 insertions(+), 838 deletions(-)
+ 167 files changed, 25166 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -18112,10 +18112,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..af09a5e73401
+index 000000000000..97ba7b70a0e8
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1637 @@
+@@ -0,0 +1,1636 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -19640,7 +19640,6 @@ index 000000000000..af09a5e73401
 +	return false;
 +}
 +
-+//__attribute__((optimize(0)))
 +int nested_vmexit(struct kvm_vcpu *vcpu, bool *skip_instruction)
 +{
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -22462,10 +22461,10 @@ index 000000000000..970d2e770844
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
 new file mode 100644
-index 000000000000..e4a703fbabfe
+index 000000000000..46246082ebc8
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,404 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -22557,26 +22556,28 @@ index 000000000000..e4a703fbabfe
 +	}
 +}
 +
-+__attribute__((optimize(1)))
-+void pkvm_set_regs(struct kvm_vcpu *vcpu, struct kvm_vcpu *from)
++#ifdef CONFIG_PKVM_EMULATED_VE
++
++static void pkvm_set_regs(struct kvm_vcpu *vcpu, struct kvm_vcpu *from, unsigned long rflags)
 +{
 +	struct pkvm_host_vcpu *pkvm_hvcpu = to_pkvm_hvcpu(vcpu);
 +	struct shadow_vcpu_state *cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
 +
 +	memcpy(&cur_shadow_vcpu->regs, &from->arch.regs, sizeof(cur_shadow_vcpu->regs));
-+	cur_shadow_vcpu->rflags = kvm_get_rflags(from);
++	cur_shadow_vcpu->rflags = rflags;
 +	cur_shadow_vcpu->regs_avail = ~0;
 +}
 +
-+__attribute__((optimize(1)))
-+void pkvm_get_regs(struct kvm_vcpu *vcpu, struct kvm_vcpu *to)
++static void pkvm_get_regs(struct kvm_vcpu *vcpu, struct kvm_vcpu *to, unsigned long *rflags)
 +{
 +	struct pkvm_host_vcpu *pkvm_hvcpu = to_pkvm_hvcpu(vcpu);
 +	struct shadow_vcpu_state *cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
 +
 +	memcpy(&to->arch.regs, &cur_shadow_vcpu->regs, sizeof(cur_shadow_vcpu->regs));
-+	kvm_set_rflags(to, cur_shadow_vcpu->rflags);
++	*rflags = cur_shadow_vcpu->rflags;
 +}
++
++#endif
 +
 +static unsigned long handle_vmcall(struct kvm_vcpu *vcpu)
 +{
@@ -22620,17 +22621,17 @@ index 000000000000..e4a703fbabfe
 +	case PKVM_HC_TLB_REMOTE_FLUSH_RANGE:
 +		nested_invalidate_shadow_ept(a0, a1, a2);
 +		break;
++#ifdef CONFIG_PKVM_EMULATED_VE
 +	case PKVM_HC_SET_MMIO_VE:
-+#ifndef CONFIG_PKVM_EMULATED_VE
 +		pkvm_shadow_clear_suppress_ve(vcpu, a0);
-+#endif
 +		break;
 +	case PKVM_HC_GET_REGS:
-+		pkvm_get_regs(vcpu, (struct kvm_vcpu *)a0);
++		pkvm_get_regs(vcpu, (struct kvm_vcpu *)a0, (unsigned long *)a1);
 +		break;
 +	case PKVM_HC_SET_REGS:
-+		pkvm_set_regs(vcpu, (struct kvm_vcpu *)a0);
++		pkvm_set_regs(vcpu, (struct kvm_vcpu *)a0, (unsigned long)a1);
 +		break;
++#endif
 +	case PKVM_HC_ADD_PTDEV:
 +		ret = pkvm_add_ptdev(a0, a1, a2);
 +		break;
@@ -26539,7 +26540,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..d3decea16e12 100644
+index 7144e5166813..e0100db947e5 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26618,27 +26619,41 @@ index 7144e5166813..d3decea16e12 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -11282,6 +11332,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
+@@ -11282,6 +11332,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
  
  static void __get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
  {
 +#ifdef CONFIG_PKVM_EMULATED_VE
-+	kvm_hypercall1(PKVM_HC_GET_REGS, (u64)vcpu);
++	unsigned long rflags;
++
++	kvm_hypercall2(PKVM_HC_GET_REGS, (u64)vcpu, (unsigned long)&rflags);
 +#endif
  	if (vcpu->arch.emulate_regs_need_sync_to_vcpu) {
  		/*
  		 * We are here if userspace calls get_regs() in the middle of
-@@ -11354,6 +11407,9 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
+@@ -11313,7 +11368,11 @@ static void __get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
+ #endif
+ 
+ 	regs->rip = kvm_rip_read(vcpu);
++#ifndef CONFIG_PKVM_EMULATED_VE
+ 	regs->rflags = kvm_get_rflags(vcpu);
++#else
++	regs->rflags = rflags;
++#endif
+ }
+ 
+ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
+@@ -11354,6 +11413,9 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
  	vcpu->arch.exception.pending = false;
  	vcpu->arch.exception_vmexit.pending = false;
  
 +#ifdef CONFIG_PKVM_EMULATED_VE
-+	kvm_hypercall1(PKVM_HC_SET_REGS, (u64)vcpu);
++	kvm_hypercall2(PKVM_HC_SET_REGS, (u64)vcpu, regs->rflags | X86_EFLAGS_FIXED);
 +#endif
  	kvm_make_request(KVM_REQ_EVENT, vcpu);
  }
  
-@@ -12448,9 +12504,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12510,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -26654,7 +26669,7 @@ index 7144e5166813..d3decea16e12 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12643,6 +12704,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12710,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -26662,7 +26677,7 @@ index 7144e5166813..d3decea16e12 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12777,10 +12839,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12845,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {

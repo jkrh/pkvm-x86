@@ -50,10 +50,10 @@ qemu-clean:
 	@./scripts/build-qemu.sh clean
 
 qemu-distclean:
-	cd $(QEMUDIR); git clean -xfd
+	@./scripts/build-qemu.sh distclean
 
 target-qemu:
-	@./scripts/build-target-qemu.sh
+	@DEBUG=1 ./scripts/build-target-qemu.sh
 
 target-qemu-clean:
 	@./scripts/build-target-qemu.sh clean

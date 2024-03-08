@@ -1,4 +1,4 @@
-From 749d46c8be1bc613904e1650efc07d672f955255 Mon Sep 17 00:00:00 2001
+From 956b0b6015a82a08f76f9dfe570932b5ce66910e Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -57,7 +57,6 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/include/asm/vmx.h                    |    9 +
  arch/x86/include/asm/vmxfeatures.h            |    2 +
  arch/x86/include/uapi/asm/kvm.h               |    3 +
- arch/x86/kernel/alternative.c                 |    1 +
  arch/x86/kernel/cpu/Makefile                  |    1 +
  arch/x86/kernel/cpu/hypervisor.c              |    3 +
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
@@ -85,7 +84,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1088 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1087 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -111,7 +110,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1636 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1640 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -163,10 +162,10 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  include/linux/intel-iommu.h                   |  863 ++++
  include/linux/kvm_host.h                      |   40 +-
  include/linux/kvm_types.h                     |    1 +
- include/linux/ramlog.h                        |   15 +
+ include/linux/ramlog.h                        |   17 +
  include/uapi/linux/kvm.h                      |    1 +
  include/uapi/linux/kvm_para.h                 |   12 +
- kernel/printk/printk.c                        |    6 +
+ kernel/printk/printk.c                        |    7 +
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
@@ -177,7 +176,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25166 insertions(+), 838 deletions(-)
+ 166 files changed, 25171 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9212,18 +9211,6 @@ index 46de10a809ec..f513dc0ae610 100644
 +#define KVM_X86_PROTECTED_VM	1
 +
  #endif /* _ASM_X86_KVM_H */
-diff --git a/arch/x86/kernel/alternative.c b/arch/x86/kernel/alternative.c
-index 6b8c93989aa3..3cf72587cb8f 100644
---- a/arch/x86/kernel/alternative.c
-+++ b/arch/x86/kernel/alternative.c
-@@ -1106,6 +1106,7 @@ static void text_poke_memset(void *dst, const void *src, size_t len)
- 
- typedef void text_poke_f(void *dst, const void *src, size_t len);
- 
-+__attribute__((optimize(1)))
- static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t len)
- {
- 	bool cross_page_boundary = offset_in_page(addr) + len > PAGE_SIZE;
 diff --git a/arch/x86/kernel/cpu/Makefile b/arch/x86/kernel/cpu/Makefile
 index f10a921ee756..9aeff7157d86 100644
 --- a/arch/x86/kernel/cpu/Makefile
@@ -10279,10 +10266,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..b6f530a505a1
+index 000000000000..15b605e1df7a
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1088 @@
+@@ -0,0 +1,1087 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -10645,7 +10632,6 @@ index 000000000000..b6f530a505a1
 +	return 0;
 +}
 +
-+__attribute__((optimize(0)))
 +int handle_host_ept_violation(struct kvm_vcpu *vcpu, bool *skip_instruction)
 +{
 +	unsigned long hva, hpa, gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
@@ -18112,10 +18098,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..97ba7b70a0e8
+index 000000000000..8e9523cdc69d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1636 @@
+@@ -0,0 +1,1640 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18853,6 +18839,7 @@ index 000000000000..97ba7b70a0e8
 +	struct shadow_vcpu_state *cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
 +	struct vmcs *vmcs02 = (struct vmcs *)cur_shadow_vcpu->vmcs02;
 +	struct vmcs12 *vmcs12 = (struct vmcs12 *)cur_shadow_vcpu->cached_vmcs12;
++	static int initp;
 +
 +	if (vmx->nested.current_vmptr == INVALID_GPA) {
 +		nested_vmx_result(VMfailInvalid, 0);
@@ -18870,6 +18857,11 @@ index 000000000000..97ba7b70a0e8
 +		vmcs_load_track(vmx, vmcs02);
 +
 +		sync_vmcs12_dirty_fields_to_vmcs02(vmx, vmcs12);
++
++		if (!initp) {
++			pkvm_info("pkvm launcing a protected VM\n%s\n", debug_dump_vmcs());
++			initp = 1;
++		}
 +
 +		/* mark guest mode */
 +		vcpu->arch.hflags |= HF_GUEST_MASK;
@@ -19278,9 +19270,7 @@ index 000000000000..97ba7b70a0e8
 +	if (check_vmx_permission(vcpu))
 +		nested_vmx_run(vcpu, true);
 +
-+	pkvm_info("pkvm launcing a protected VM\n%s\n", debug_dump_vmcs());
 +	debug_validate_vmcs();
-+
 +	return 0;
 +}
 +
@@ -28535,16 +28525,18 @@ index 3ca3db020e0e..e556fcf5036a 100644
  struct kvm_vcpu_stat_generic {
 diff --git a/include/linux/ramlog.h b/include/linux/ramlog.h
 new file mode 100644
-index 000000000000..7d26360678a2
+index 000000000000..09c736a37ef2
 --- /dev/null
 +++ b/include/linux/ramlog.h
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,17 @@
++#define RAMLOGSZ (2 * PAGE_SIZE)
++
 +#ifdef CONFIG_DEBUG_KERNEL
 +extern char __rlog[];
 +extern int __rp;
 +#define __ramlog(...)							\
 +	do {								\
-+		if ((__rp + 128) >= PAGE_SIZE)				\
++		if ((__rp + 128) >= RAMLOGSZ)				\
 +			__rp = 0;					\
 +		__rp += snprintf(&__rlog[__rp], 128, __VA_ARGS__);	\
 +	} while (0)
@@ -28590,16 +28582,17 @@ index 960c7e93d1a9..57bdce3619f4 100644
   * hypercalls use architecture specific
   */
 diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
-index cc53fb77f77c..1e4b72c1ba10 100644
+index cc53fb77f77c..93f134ce7e36 100644
 --- a/kernel/printk/printk.c
 +++ b/kernel/printk/printk.c
-@@ -408,6 +408,12 @@ static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
+@@ -408,6 +408,13 @@ static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
  static char *log_buf = __log_buf;
  static u32 log_buf_len = __LOG_BUF_LEN;
  
 +/* Tiny ram log */
 +#ifdef CONFIG_DEBUG_KERNEL
-+char __rlog[PAGE_SIZE];
++#include <linux/ramlog.h>
++char __rlog[RAMLOGSZ];
 +int __rp = 0;
 +#endif
 +

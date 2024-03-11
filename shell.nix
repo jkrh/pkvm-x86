@@ -5,6 +5,7 @@ mkShell {
     linuxPackages.kernel
     gdb
     parted
+    ccache
   ];
   inputsFrom = [
     linuxPackages.kernel

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 SPICE="${SPICE:-1}"
 OPENGL="${OPENGL:-1}"
@@ -46,8 +46,26 @@ echo "Debug qemu build"
 DEBUG="--enable-debug"
 fi
 
-export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
+unset CC
+unset LD
+unset CXX
+unset AR
+unset CPP
+unset CROSS_COMPILE
+unset CFLAGS
+unset LDFLAGS
+unset ASFLAGS
+unset INCLUDES
+unset WARNINGS
+unset DEFINES
+
+export UBUNTU_BASE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-amd64.tar.gz
+
+export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin:$PATH
+export XDG_DATA_DIRS=/usr/local/share:/usr/share
 export CHROOTDIR=$BASE_DIR/ubuntu
+
+PKGLIST=$(tr '\n' ' ' < "$BASE_DIR/scripts/package.list.22")
 
 NJOBS=`nproc`
 USER=`whoami`
@@ -57,8 +75,7 @@ set -e
 do_unmount()
 {
 	if [[ $(findmnt -M "$1") ]]; then
-		sudo umount $1
-		if [ $? -ne 0 ]; then
+		if ! sudo umount "$1"; then
 			echo "ERROR: failed to umount $1"
 			exit 1
 		fi
@@ -71,33 +88,55 @@ do_unmount_all()
 
 	echo "Unmount all binding dirs"
 	cd $BASE_DIR
+
+	do_unmount $CHROOTDIR/build
 	do_unmount $CHROOTDIR/proc
 	do_unmount $CHROOTDIR/dev
-	do_unmount $CHROOTDIR/build
-	do_unmount $CHROOTDIR
 }
 
 do_clean()
 {
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; make -j$NJOBSl clean"
+	sudo -E chroot "$CHROOTDIR" sh -c ". /etc/profile; cd /build/qemu/build; make clean"
 }
 
 do_distclean()
 {
 	do_unmount_all
 	sudo rm -rf $BASE_DIR/ubuntu
+	sudo rm -rf $BASE_DIR/build
 	sudo rm -rf $CHROOTDIR
+}
+
+do_mount_all()
+{
+	sudo mount --bind /dev "$CHROOTDIR/dev"
+	sudo mount -t proc none "$CHROOTDIR/proc"
+	sudo mount --bind "$BASE_DIR/build" "$CHROOTDIR/build"
+}
+
+create_sysroot()
+{
+	[ ! -d "$CHROOTDIR/build" ] && mkdir -p "$CHROOTDIR/build"
+	[ ! -d "$BASE_DIR/build" ] && mkdir "$BASE_DIR/build"
+	[ ! -d "/build" ] && sudo mkdir /build
+
+	wget -c "${UBUNTU_BASE}" -P "${CHROOTDIR}"
+	tar xf "${CHROOTDIR}/$(basename $UBUNTU_BASE)" -C "${CHROOTDIR}"
+	echo "nameserver 8.8.8.8" > "${CHROOTDIR}/etc/resolv.conf"
+	sudo chmod a+rwx "${CHROOTDIR}/tmp"
+
+	do_mount_all
+
+	DEBIAN_FRONTEND=noninteractive sudo -E chroot "$CHROOTDIR" sh -c ". /etc/profile; apt-get update; apt-get -y install $PKGLIST"
 }
 
 do_sysroot()
 {
-	[ ! -d "$CHROOTDIR/build" ] && mkdir -p $CHROOTDIR/build
-	[ ! -d "$BASE_DIR/build" ] && mkdir $BASE_DIR/build
-	[ ! -d "/build" ] && sudo mkdir /build
-	sudo mount --bind / $CHROOTDIR
-	sudo mount --bind /dev $CHROOTDIR/dev
-	sudo mount -t proc none $CHROOTDIR/proc
-	sudo mount --bind $BASE_DIR/build $CHROOTDIR/build
+	if [ ! -d "$CHROOTDIR" ]; then
+		create_sysroot
+	else
+		do_mount_all
+	fi
 }
 
 copy_qemu()
@@ -119,9 +158,14 @@ do_mesa()
 
 do_qemu()
 {
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=x86_64-softmmu --enable-kvm $SPICE $OPENGL $SDL $VIRGL $DEBUG"
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; make -j$NJOBSl"
+	sudo -E chroot "$CHROOTDIR" sh -c ". /etc/profile; cd /build/qemu/build; ../configure --prefix=/usr --target-list=x86_64-softmmu --enable-kvm $SPICE $OPENGL $SDL $VIRGL $DEBUG"
+	sudo -E chroot "$CHROOTDIR" sh -c ". /etc/profile; cd /build/qemu/build; make -j$NJOBS"
 }
+
+if [[ "$#" -eq 1 ]] && [[ "$1" == "distclean" ]]; then
+	do_distclean
+	exit 0
+fi
 
 trap do_unmount_all SIGHUP SIGINT SIGTERM EXIT
 
@@ -129,11 +173,7 @@ do_sysroot
 
 if [[ "$#" -eq 1 ]] && [[ "$1" == "clean" ]]; then
 	do_clean
-        exit 0
-fi
-if [[ "$#" -eq 1 ]] && [[ "$1" == "distclean" ]]; then
-	do_distclean
-        exit 0
+	exit 0
 fi
 
 copy_qemu

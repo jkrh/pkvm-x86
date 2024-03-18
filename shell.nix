@@ -11,4 +11,5 @@ mkShell {
     linuxPackages.kernel
     qemu_kvm
   ];
+  hardeningDisable = [ "fortify" ];
 }

@@ -7,3 +7,6 @@
 [submodule "crosvm"]
 	path = crosvm
 	url = https://chromium.googlesource.com/crosvm/crosvm
+[submodule "coreboot"]
+	path = coreboot
+	url = https://review.coreboot.org/coreboot.git

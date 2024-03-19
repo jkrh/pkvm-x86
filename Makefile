@@ -64,10 +64,16 @@ target-qemu-distclean:
 target-crosvm:
 	@./scripts/build-target-crosvm.sh
 
+guest-kernel:
+	@./scripts/build-guest-kernel.sh
+
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
 
 hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)
+
+coreboot: guest-kernel
+	@./scripts/build-coreboot.sh
 
 .PHONY: all clean target-qemu run $(DIRS)

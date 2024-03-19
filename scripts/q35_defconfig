@@ -1,0 +1,8 @@
+CONFIG_BOARD_EMULATION_QEMU_X86_Q35=y
+CONFIG_LINUX_COMMAND_LINE="root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=sm_on rwroot=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=sm_on rw"
+# CONFIG_PCIEXP_HOTPLUG is not set
+# CONFIG_PCI_ALLOW_BUS_MASTER is not set
+# CONFIG_DRIVERS_MTK_WIFI is not set
+CONFIG_PAYLOAD_LINUX=y
+CONFIG_PAYLOAD_FILE=bzImage
+CONFIG_GDB_STUB=y

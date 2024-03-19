@@ -75,7 +75,7 @@ set -e
 do_unmount()
 {
 	if [[ $(findmnt -M "$1") ]]; then
-		if ! sudo umount "$1"; then
+		if ! sudo umount "$1" $2; then
 			echo "ERROR: failed to umount $1"
 			exit 1
 		fi
@@ -91,7 +91,7 @@ do_unmount_all()
 
 	do_unmount $CHROOTDIR/build
 	do_unmount $CHROOTDIR/proc
-	do_unmount $CHROOTDIR/dev
+	do_unmount $CHROOTDIR/dev -R
 }
 
 do_clean()
@@ -109,7 +109,8 @@ do_distclean()
 
 do_mount_all()
 {
-	sudo mount --bind /dev "$CHROOTDIR/dev"
+	sudo mount --rbind /dev "$CHROOTDIR/dev"
+	sudo mount --make-rslave "$CHROOTDIR/dev"
 	sudo mount -t proc none "$CHROOTDIR/proc"
 	sudo mount --bind "$BASE_DIR/build" "$CHROOTDIR/build"
 }

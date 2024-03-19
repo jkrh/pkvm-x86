@@ -1,4 +1,4 @@
-From 956b0b6015a82a08f76f9dfe570932b5ce66910e Mon Sep 17 00:00:00 2001
+From d5520f2af17a2f8c248bf5b97cfdf61be4f06e59 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -70,11 +70,12 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
  arch/x86/kvm/Kconfig                          |   33 +
  arch/x86/kvm/Makefile                         |    2 +
+ arch/x86/kvm/emulate.c                        |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
- arch/x86/kvm/mmu/mmu.c                        |   48 +-
+ arch/x86/kvm/mmu/mmu.c                        |   52 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   16 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   18 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -84,7 +85,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1087 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1086 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -138,7 +139,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/pkvm_constants.c        |   26 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.h        |   21 +
  arch/x86/kvm/vmx/pkvm/pkvm_debugfs.c          |  204 +
- arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1303 ++++++
+ arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1301 ++++++
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  260 +-
@@ -165,18 +166,18 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  include/linux/ramlog.h                        |   17 +
  include/uapi/linux/kvm.h                      |    1 +
  include/uapi/linux/kvm_para.h                 |   12 +
- kernel/printk/printk.c                        |    7 +
+ kernel/printk/printk.c                        |   11 +
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
- virt/kvm/kvm_main.c                           |   57 +-
+ virt/kvm/kvm_main.c                           |   61 +-
  virt/kvm/pkvm/buddy_memory.h                  |   36 +
  virt/kvm/pkvm/gfp.h                           |   35 +
  .../hyp/nvhe => virt/kvm/pkvm}/page_alloc.c   |  135 +-
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 166 files changed, 25171 insertions(+), 838 deletions(-)
+ 167 files changed, 25183 insertions(+), 838 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9642,6 +9643,18 @@ index f453a0f96e24..9844b10d001c 100644
  obj-$(CONFIG_KVM_AMD)	+= kvm-amd.o
  
  AFLAGS_svm/vmenter.o    := -iquote $(obj)
+diff --git a/arch/x86/kvm/emulate.c b/arch/x86/kvm/emulate.c
+index 4a43261d25a2..2f73cbfa6946 100644
+--- a/arch/x86/kvm/emulate.c
++++ b/arch/x86/kvm/emulate.c
+@@ -5101,6 +5101,7 @@ static int decode_operand(struct x86_emulate_ctxt *ctxt, struct operand *op,
+ 	return rc;
+ }
+ 
++/* See the MMIO magic starting here */
+ int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len, int emulation_type)
+ {
+ 	int rc = X86EMUL_CONTINUE;
 diff --git a/arch/x86/kvm/mmu.h b/arch/x86/kvm/mmu.h
 index 59804be91b5b..a8ef25726236 100644
 --- a/arch/x86/kvm/mmu.h
@@ -9677,7 +9690,7 @@ index 59804be91b5b..a8ef25726236 100644
  			       X86_CR4_SMEP | X86_CR4_SMAP | X86_CR4_PKE)
  
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d30325e297a0..4d86ce06b301 100644
+index d30325e297a0..c94269f03794 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -255,18 +255,6 @@ static inline bool kvm_available_flush_tlb_with_range(void)
@@ -9738,11 +9751,7 @@ index d30325e297a0..4d86ce06b301 100644
  	__direct_pte_prefetch(vcpu, sp, sptep);
  }
  
-@@ -4240,16 +4233,23 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
- 	       mmu_invalidate_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
- }
- 
-+__attribute__((optimize(1)))
+@@ -4243,13 +4236,19 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
  static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  {
  	bool is_tdp_mmu_fault = is_tdp_mmu(vcpu->arch.mmu);
@@ -9763,7 +9772,7 @@ index d30325e297a0..4d86ce06b301 100644
  	if (page_fault_handle_page_track(vcpu, fault))
  		return RET_PF_EMULATE;
  
-@@ -4291,6 +4291,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
+@@ -4291,6 +4290,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
  		r = __direct_map(vcpu, fault);
  	}
  
@@ -9783,7 +9792,19 @@ index d30325e297a0..4d86ce06b301 100644
  out_unlock:
  	if (is_tdp_mmu_fault)
  		read_unlock(&vcpu->kvm->mmu_lock);
-@@ -6428,7 +6441,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
+@@ -5569,6 +5581,11 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
+ 		return RET_PF_RETRY;
+ 
+ 	r = RET_PF_INVALID;
++	/*
++	 * Please help me understand, when are we supposed to get here?
++	 * I see this is a shortcut to the emulation when the MMIO PTEs
++	 * are set, but what is the condition for the mask and where?
++	 */
+ 	if (unlikely(error_code & PFERR_RSVD_MASK)) {
+ 		r = handle_mmio_page_fault(vcpu, cr2_or_gpa, direct);
+ 		if (r == RET_PF_EMULATE)
+@@ -6428,7 +6445,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
  			kvm_zap_one_rmap_spte(kvm, rmap_head, sptep);
  
  			if (kvm_available_flush_tlb_with_range())
@@ -9820,7 +9841,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..814a9e1c7064 100644
+index c3b0f973375b..08fdab1f2252 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -9859,15 +9880,7 @@ index c3b0f973375b..814a9e1c7064 100644
  	}
  
  	return ret;
-@@ -1120,6 +1129,7 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
-  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
-  * page tables and SPTEs to translate the faulting guest physical address.
-  */
-+__attribute__((optimize(0)))
- int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
- {
- 	struct kvm_mmu *mmu = vcpu->arch.mmu;
-@@ -1133,6 +1143,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1133,6 +1142,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  
  	rcu_read_lock();
  
@@ -9877,11 +9890,14 @@ index c3b0f973375b..814a9e1c7064 100644
  	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
  		if (fault->nx_huge_page_workaround_enabled)
  			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1205,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1204,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
 +	pr_info("%s(): ret %d\n", __func__, ret);
++	if (ret == RET_PF_EMULATE)
++		pr_info("%s(): emulate gpa 0x%llx\n", __func__, fault->addr);
++
  	return ret;
  }
  
@@ -10266,10 +10282,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..15b605e1df7a
+index 000000000000..ad287cf9ba57
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1087 @@
+@@ -0,0 +1,1086 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -10639,14 +10655,16 @@ index 000000000000..15b605e1df7a
 +	struct mem_range range, cur;
 +	bool is_memory = find_mem_range(gpa, &range);
 +	u64 prot = pkvm_mkstate(HOST_EPT_DEF_MMIO_PROT, PKVM_PAGE_OWNED);
-+	int level;
-+	int ret;
++	int level, ret, ud = 0x0FB9;
++
 +	*skip_instruction = true;
 +
 +	if (is_memory) {
 +		hva = gfn_to_hva(vcpu->kvm, gpa >> PAGE_SHIFT);
 +		pkvm_err("%s: host memory access violation for 0x%lx/0x%lx at 0x%lx\n",
 +			 __func__, hva, gpa, eip);
++		eip += 4;
++		memcpy((void *)eip, &ud, 4);
 +		return -EPERM;
 +	}
 +
@@ -10825,7 +10843,6 @@ index 000000000000..15b605e1df7a
 +	.flush_cache = pkvm_clflush_cache_range,
 +};
 +
-+__attribute__((optimize(0)))
 +static int pkvm_pgstate_pgt_map_leaf(struct pkvm_pgtable *pgt, unsigned long vaddr, int level,
 +				     void *ptep, struct pgt_flush_data *flush_data, void *arg)
 +{
@@ -11185,7 +11202,6 @@ index 000000000000..15b605e1df7a
 +	return 0;
 +}
 +
-+__attribute__((optimize(0)))
 +static bool allow_shadow_ept_mapping(struct pkvm_shadow_vm *vm,
 +				     u64 gpa, unsigned long hpa,
 +				     unsigned long size)
@@ -11269,7 +11285,6 @@ index 000000000000..15b605e1df7a
 +	return ((spte & shadow_mmio_mask) == shadow_mmio_value);
 +}
 +
-+__attribute__((optimize(0)))
 +enum sept_handle_ret
 +pkvm_handle_shadow_ept_violation(struct shadow_vcpu_state *shadow_vcpu, u64 l2_gpa, u64 exit_quali)
 +{
@@ -24153,10 +24168,10 @@ index 000000000000..c6cd7f3656b0
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/pkvm_host.c b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
 new file mode 100644
-index 000000000000..d1eed6016760
+index 000000000000..3eff34ab9846
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
-@@ -0,0 +1,1303 @@
+@@ -0,0 +1,1301 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -24245,7 +24260,6 @@ index 000000000000..d1eed6016760
 +	return ecap_smts(ecap) ? !!ecap_smpwc(ecap) : !!ecap_coherent(ecap);
 +}
 +
-+__attribute__((optimize(0)))
 +static int check_and_init_iommu(struct pkvm_hyp *pkvm)
 +{
 +	struct pkvm_iommu_info *info;
@@ -24739,7 +24753,6 @@ index 000000000000..d1eed6016760
 +	rdmsr(MSR_IA32_VMX_MISC, msrs->misc_low, msrs->misc_high);
 +}
 +
-+__attribute__((optimize(0)))
 +static int pkvm_host_check_and_setup_vmx_cap(struct pkvm_hyp *pkvm)
 +{
 +	struct vmcs_config *vmcs_config = &pkvm->vmcs_config;
@@ -28582,7 +28595,7 @@ index 960c7e93d1a9..57bdce3619f4 100644
   * hypercalls use architecture specific
   */
 diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
-index cc53fb77f77c..93f134ce7e36 100644
+index cc53fb77f77c..65abe15fed65 100644
 --- a/kernel/printk/printk.c
 +++ b/kernel/printk/printk.c
 @@ -408,6 +408,13 @@ static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
@@ -28599,6 +28612,19 @@ index cc53fb77f77c..93f134ce7e36 100644
  /*
   * Define the average message size. This only affects the number of
   * descriptors that will be available. Underestimating is better than
+@@ -2739,8 +2746,12 @@ static bool console_emit_next_record(struct console *con, char *text, char *ext_
+ 	console_lock_spinning_enable();
+ 
+ 	stop_critical_timings();	/* don't trace print latency */
++#ifdef PLEASE_MAKE_ME_A_PROPER_KCONFIG
+ 	call_console_driver(con, write_text, len, dropped_text);
+ 	start_critical_timings();
++#else
++	con->write(con, write_text, len);
++#endif
+ 
+ 	con->seq++;
+ 
 diff --git a/tools/arch/x86/include/uapi/asm/kvm.h b/tools/arch/x86/include/uapi/asm/kvm.h
 index 46de10a809ec..f513dc0ae610 100644
 --- a/tools/arch/x86/include/uapi/asm/kvm.h
@@ -28649,7 +28675,7 @@ index 71b290b6469d..610618432f3f 100644
  #define PIN_BASED_NMI_EXITING			0x00000008
  #define PIN_BASED_VIRTUAL_NMIS			0x00000020
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8123f4d15930..61519272564b 100644
+index 8123f4d15930..20b793772304 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -55,6 +55,7 @@
@@ -28753,7 +28779,25 @@ index 8123f4d15930..61519272564b 100644
  {
  	/* Add the new memslot to the inactive set and activate. */
  	kvm_replace_memslot(kvm, NULL, new);
-@@ -5908,7 +5947,7 @@ static void check_processor_compat(void *data)
+@@ -3001,6 +3040,8 @@ static int __kvm_read_guest_page(struct kvm_memory_slot *slot, gfn_t gfn,
+ 	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
+ 	if (kvm_is_error_hva(addr))
+ 		return -EFAULT;
++	pr_info("%s(): gpa 0x%llx host 0x%lx len %u\n", __func__,
++		(gfn << PAGE_SHIFT) + offset, addr, len);
+ 	r = __copy_from_user(data, (void __user *)addr + offset, len);
+ 	if (r)
+ 		return -EFAULT;
+@@ -3103,6 +3144,8 @@ static int __kvm_write_guest_page(struct kvm *kvm,
+ 	addr = gfn_to_hva_memslot(memslot, gfn);
+ 	if (kvm_is_error_hva(addr))
+ 		return -EFAULT;
++	pr_info("%s(): gpa 0x%llx host 0x%lx len %u\n", __func__,
++		(gfn << PAGE_SHIFT) + offset, addr, len);
+ 	r = __copy_to_user((void __user *)addr + offset, data, len);
+ 	if (r)
+ 		return -EFAULT;
+@@ -5908,7 +5951,7 @@ static void check_processor_compat(void *data)
  }
  
  int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
@@ -28762,7 +28806,7 @@ index 8123f4d15930..61519272564b 100644
  {
  	struct kvm_cpu_compat_check c;
  	int r;
-@@ -5946,6 +5985,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -5946,6 +5989,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  			goto out_free_2;
  	}
  

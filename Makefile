@@ -73,7 +73,10 @@ guestimage:
 hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)
 
-coreboot: guest-kernel
-	@./scripts/build-coreboot.sh
+coreboot-guest: guest-kernel
+	@./scripts/build-coreboot.sh -g
+
+coreboot-host: kernel
+	@./scripts/build-coreboot.sh -e
 
 .PHONY: all clean target-qemu run $(DIRS)

@@ -32,6 +32,8 @@ make CPUS=$(nproc)
 
 if [ $BUILDTGT = 1 ]; then
 	cp build/coreboot.rom $BASEDIR/build/coreboot-host.rom
+	cp build/cbfs/fallback/ramstage.debug $BASEDIR/build/host-ramstage.debug
 else
 	cp build/coreboot.rom $BASEDIR/build/coreboot-guest.rom
+	cp build/cbfs/fallback/ramstage.debug $BASEDIR/build/guest-ramstage.debug
 fi

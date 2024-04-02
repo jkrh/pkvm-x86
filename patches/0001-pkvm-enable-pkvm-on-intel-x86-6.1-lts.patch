@@ -1,4 +1,4 @@
-From d17dc048c806f38b09c26456215f44e4664382b5 Mon Sep 17 00:00:00 2001
+From 2072e5347080c19f7d276d7bd9f77f2888f3ba53 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -148,7 +148,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |  102 +-
+ arch/x86/kvm/x86.c                            |   81 +-
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25182 insertions(+), 840 deletions(-)
+ 167 files changed, 25161 insertions(+), 840 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -26535,7 +26535,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..5b6a3f7e5e88 100644
+index 7144e5166813..c0a551877599 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26569,15 +26569,7 @@ index 7144e5166813..5b6a3f7e5e88 100644
  	ctxt->tf = (ctxt->eflags & X86_EFLAGS_TF) != 0;
  
  	ctxt->eip = kvm_rip_read(vcpu);
-@@ -8414,6 +8422,7 @@ void kvm_inject_realmode_interrupt(struct kvm_vcpu *vcpu, int irq, int inc_eip)
- 		kvm_rip_write(vcpu, ctxt->eip);
- 		kvm_set_rflags(vcpu, ctxt->eflags);
- 	}
-+	kvm_hypercall2(PKVM_HC_SET_REGS, (u64)vcpu, (unsigned long)&ctxt->eflags);
- }
- EXPORT_SYMBOL_GPL(kvm_inject_realmode_interrupt);
- 
-@@ -8854,7 +8863,7 @@ int x86_decode_emulated_instruction(struct kvm_vcpu *vcpu, int emulation_type,
+@@ -8854,7 +8862,7 @@ int x86_decode_emulated_instruction(struct kvm_vcpu *vcpu, int emulation_type,
  }
  EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
  
@@ -26586,28 +26578,20 @@ index 7144e5166813..5b6a3f7e5e88 100644
  			    int emulation_type, void *insn, int insn_len)
  {
  	int r;
-@@ -9044,6 +9053,20 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
+@@ -9044,6 +9052,12 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
  	return r;
  }
  
 +int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 +                            int emulation_type, void *insn, int insn_len)
 +{
-+	unsigned long eflags;
-+	int r;
-+
-+	kvm_hypercall2(PKVM_HC_GET_REGS, (u64)vcpu, (unsigned long)&eflags);
-+	kvm_set_rflags(vcpu, eflags);
-+	r = __x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type, insn, insn_len);
-+	kvm_hypercall2(PKVM_HC_SET_REGS, (u64)vcpu, (unsigned long)eflags);
-+
-+	return r;
++	return __x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type, insn, insn_len);
 +}
 +
  int kvm_emulate_instruction(struct kvm_vcpu *vcpu, int emulation_type)
  {
  	return x86_emulate_instruction(vcpu, 0, emulation_type, NULL, 0);
-@@ -9704,11 +9727,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9704,11 +9718,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -26661,41 +26645,7 @@ index 7144e5166813..5b6a3f7e5e88 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -11282,6 +11347,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
- 
- static void __get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
- {
-+#ifdef CONFIG_PKVM_EMULATED_VE
-+	unsigned long rflags;
-+
-+	kvm_hypercall2(PKVM_HC_GET_REGS, (u64)vcpu, (unsigned long)&rflags);
-+#endif
- 	if (vcpu->arch.emulate_regs_need_sync_to_vcpu) {
- 		/*
- 		 * We are here if userspace calls get_regs() in the middle of
-@@ -11313,7 +11383,11 @@ static void __get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
- #endif
- 
- 	regs->rip = kvm_rip_read(vcpu);
-+#ifndef CONFIG_PKVM_EMULATED_VE
- 	regs->rflags = kvm_get_rflags(vcpu);
-+#else
-+	regs->rflags = rflags;
-+#endif
- }
- 
- int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
-@@ -11354,6 +11428,9 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
- 	vcpu->arch.exception.pending = false;
- 	vcpu->arch.exception_vmexit.pending = false;
- 
-+#ifdef CONFIG_PKVM_EMULATED_VE
-+	kvm_hypercall2(PKVM_HC_SET_REGS, (u64)vcpu, regs->rflags | X86_EFLAGS_FIXED);
-+#endif
- 	kvm_make_request(KVM_REQ_EVENT, vcpu);
- }
- 
-@@ -12448,9 +12525,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12504,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -26711,7 +26661,7 @@ index 7144e5166813..5b6a3f7e5e88 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12643,6 +12725,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12704,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -26719,7 +26669,7 @@ index 7144e5166813..5b6a3f7e5e88 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12777,10 +12860,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12839,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {
@@ -29441,5 +29391,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.42.0
+2.34.1
 

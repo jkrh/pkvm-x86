@@ -1,4 +1,4 @@
-From 0d65292d7f89f386bcfd7cb01502a5d3a4582e6f Mon Sep 17 00:00:00 2001
+From d17dc048c806f38b09c26456215f44e4664382b5 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -47,7 +47,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/include/asm/kvm-x86-ops.h            |    2 +
  arch/x86/include/asm/kvm_host.h               |   18 +
  arch/x86/include/asm/kvm_pkvm.h               |  250 ++
- arch/x86/include/asm/pkvm.h                   |  159 +
+ arch/x86/include/asm/pkvm.h                   |  158 +
  arch/x86/include/asm/pkvm_image.h             |   48 +
  arch/x86/include/asm/pkvm_image_vars.h        |   23 +
  arch/x86/include/asm/pkvm_spinlock.h          |   62 +
@@ -72,10 +72,10 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/Makefile                         |    2 +
  arch/x86/kvm/emulate.c                        |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
- arch/x86/kvm/mmu/mmu.c                        |   52 +-
+ arch/x86/kvm/mmu/mmu.c                        |   53 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   18 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   19 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -111,7 +111,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1640 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1636 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -125,7 +125,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  404 ++
+ arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  389 ++
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.h            |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  136 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25200 insertions(+), 840 deletions(-)
+ 167 files changed, 25182 insertions(+), 840 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -8729,10 +8729,10 @@ index 000000000000..73ec34f2c4df
 +
 diff --git a/arch/x86/include/asm/pkvm.h b/arch/x86/include/asm/pkvm.h
 new file mode 100644
-index 000000000000..e5ff65e343d3
+index 000000000000..4bf3efe18467
 --- /dev/null
 +++ b/arch/x86/include/asm/pkvm.h
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,158 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -8762,8 +8762,7 @@ index 000000000000..e5ff65e343d3
 +#define PKVM_HC_TLB_REMOTE_FLUSH_RANGE	8
 +#define PKVM_HC_SET_MMIO_VE		9
 +#define PKVM_HC_ADD_PTDEV		10
-+#define PKVM_HC_GET_REGS		11
-+#define PKVM_HC_SET_REGS		12
++#define PKVM_DISALLOW_EMULATION		11
 +
 +/*
 + * 15bits for PASID, DO NOT change it, based on it,
@@ -9690,7 +9689,7 @@ index 59804be91b5b..a8ef25726236 100644
  			       X86_CR4_SMEP | X86_CR4_SMAP | X86_CR4_PKE)
  
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d30325e297a0..c94269f03794 100644
+index d30325e297a0..f8f900fbe635 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -255,18 +255,6 @@ static inline bool kvm_available_flush_tlb_with_range(void)
@@ -9751,7 +9750,11 @@ index d30325e297a0..c94269f03794 100644
  	__direct_pte_prefetch(vcpu, sp, sptep);
  }
  
-@@ -4243,13 +4236,19 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
+@@ -4240,16 +4233,23 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
+ 	       mmu_invalidate_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
+ }
+ 
++__attribute__((optimize(1)))
  static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  {
  	bool is_tdp_mmu_fault = is_tdp_mmu(vcpu->arch.mmu);
@@ -9772,7 +9775,7 @@ index d30325e297a0..c94269f03794 100644
  	if (page_fault_handle_page_track(vcpu, fault))
  		return RET_PF_EMULATE;
  
-@@ -4291,6 +4290,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
+@@ -4291,6 +4291,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
  		r = __direct_map(vcpu, fault);
  	}
  
@@ -9792,7 +9795,7 @@ index d30325e297a0..c94269f03794 100644
  out_unlock:
  	if (is_tdp_mmu_fault)
  		read_unlock(&vcpu->kvm->mmu_lock);
-@@ -5569,6 +5581,11 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
+@@ -5569,6 +5582,11 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
  		return RET_PF_RETRY;
  
  	r = RET_PF_INVALID;
@@ -9804,7 +9807,7 @@ index d30325e297a0..c94269f03794 100644
  	if (unlikely(error_code & PFERR_RSVD_MASK)) {
  		r = handle_mmio_page_fault(vcpu, cr2_or_gpa, direct);
  		if (r == RET_PF_EMULATE)
-@@ -6428,7 +6445,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
+@@ -6428,7 +6446,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
  			kvm_zap_one_rmap_spte(kvm, rmap_head, sptep);
  
  			if (kvm_available_flush_tlb_with_range())
@@ -9841,7 +9844,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..08fdab1f2252 100644
+index c3b0f973375b..ff67c42cfa10 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -9880,7 +9883,15 @@ index c3b0f973375b..08fdab1f2252 100644
  	}
  
  	return ret;
-@@ -1133,6 +1142,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1120,6 +1129,7 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
+  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
+  * page tables and SPTEs to translate the faulting guest physical address.
+  */
++__attribute__((optimize(0)))
+ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+ {
+ 	struct kvm_mmu *mmu = vcpu->arch.mmu;
+@@ -1133,6 +1143,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  
  	rcu_read_lock();
  
@@ -9890,7 +9901,7 @@ index c3b0f973375b..08fdab1f2252 100644
  	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
  		if (fault->nx_huge_page_workaround_enabled)
  			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1204,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1205,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
@@ -18113,10 +18124,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..8e9523cdc69d
+index 000000000000..84183877f19f
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1640 @@
+@@ -0,0 +1,1636 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18880,12 +18891,6 @@ index 000000000000..8e9523cdc69d
 +
 +		/* mark guest mode */
 +		vcpu->arch.hflags |= HF_GUEST_MASK;
-+
-+		if (cur_shadow_vcpu->regs_avail != 0) {
-+			memcpy(&vcpu->arch.regs, &cur_shadow_vcpu->regs, sizeof(cur_shadow_vcpu->regs));
-+			vmcs_writel(GUEST_RFLAGS, cur_shadow_vcpu->rflags);
-+		}
-+		cur_shadow_vcpu->regs_avail = 0;
 +	}
 +}
 +
@@ -19700,6 +19705,8 @@ index 000000000000..8e9523cdc69d
 +
 +	if (!vmcs12->launch_state)
 +		vmcs12->launch_state = 1;
++
++	copy_shadow_fields_vmcs02_to_vmcs12(vmx, vmcs12);
 +
 +	/* switch to vmcs01 */
 +	vmcs_clear_track(vmx, vmcs02);
@@ -22466,10 +22473,10 @@ index 000000000000..970d2e770844
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
 new file mode 100644
-index 000000000000..46246082ebc8
+index 000000000000..e26f90e18c61
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,389 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -22495,6 +22502,8 @@ index 000000000000..46246082ebc8
 +#define CR4	4
 +
 +#define MOV_TO_CR		0
++
++bool emulate_allowed = true;
 +
 +extern int __pkvm_init_finalise(struct kvm_vcpu *vcpu,
 +		phys_addr_t phys, unsigned long size);
@@ -22561,29 +22570,6 @@ index 000000000000..46246082ebc8
 +	}
 +}
 +
-+#ifdef CONFIG_PKVM_EMULATED_VE
-+
-+static void pkvm_set_regs(struct kvm_vcpu *vcpu, struct kvm_vcpu *from, unsigned long rflags)
-+{
-+	struct pkvm_host_vcpu *pkvm_hvcpu = to_pkvm_hvcpu(vcpu);
-+	struct shadow_vcpu_state *cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
-+
-+	memcpy(&cur_shadow_vcpu->regs, &from->arch.regs, sizeof(cur_shadow_vcpu->regs));
-+	cur_shadow_vcpu->rflags = rflags;
-+	cur_shadow_vcpu->regs_avail = ~0;
-+}
-+
-+static void pkvm_get_regs(struct kvm_vcpu *vcpu, struct kvm_vcpu *to, unsigned long *rflags)
-+{
-+	struct pkvm_host_vcpu *pkvm_hvcpu = to_pkvm_hvcpu(vcpu);
-+	struct shadow_vcpu_state *cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
-+
-+	memcpy(&to->arch.regs, &cur_shadow_vcpu->regs, sizeof(cur_shadow_vcpu->regs));
-+	*rflags = cur_shadow_vcpu->rflags;
-+}
-+
-+#endif
-+
 +static unsigned long handle_vmcall(struct kvm_vcpu *vcpu)
 +{
 +	u64 nr, a0, a1, a2, a3;
@@ -22630,11 +22616,8 @@ index 000000000000..46246082ebc8
 +	case PKVM_HC_SET_MMIO_VE:
 +		pkvm_shadow_clear_suppress_ve(vcpu, a0);
 +		break;
-+	case PKVM_HC_GET_REGS:
-+		pkvm_get_regs(vcpu, (struct kvm_vcpu *)a0, (unsigned long *)a1);
-+		break;
-+	case PKVM_HC_SET_REGS:
-+		pkvm_set_regs(vcpu, (struct kvm_vcpu *)a0, (unsigned long)a1);
++	case PKVM_DISALLOW_EMULATION:
++		emulate_allowed = false;
 +		break;
 +#endif
 +	case PKVM_HC_ADD_PTDEV:
@@ -22721,16 +22704,25 @@ index 000000000000..46246082ebc8
 +	do {
 +		bool skip_instruction = false, guest_exit = false;
 +
++		pkvm_hvcpu = to_pkvm_hvcpu(vcpu);
++		cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
++
++		/* sync from kvm */
++		if (is_guest_mode(vcpu) && emulate_allowed) {
++			memcpy(vcpu->arch.regs, cur_shadow_vcpu->vcpu->arch.regs,
++			       sizeof(cur_shadow_vcpu->vcpu->arch.regs));
++		}
++
 +		if (__pkvm_vmx_vcpu_run(vcpu->arch.regs, launch)) {
 +			pkvm_err("%s: CPU%d run_vcpu failed with error 0x%x\n",
 +				__func__, vcpu->cpu, vmcs_read32(VM_INSTRUCTION_ERROR));
 +			return -EINVAL;
 +		}
-+		if (is_guest_mode(vcpu)) {
-+			pkvm_hvcpu = to_pkvm_hvcpu(vcpu);
-+			cur_shadow_vcpu = pkvm_hvcpu->current_shadow_vcpu;
-+			memcpy(&cur_shadow_vcpu->regs, &vcpu->arch.regs,  sizeof(cur_shadow_vcpu->regs));
-+			cur_shadow_vcpu->rflags = vmcs_readl(GUEST_RFLAGS);
++
++		/* sync to kvm */
++		if (is_guest_mode(vcpu) && emulate_allowed) {
++			memcpy(cur_shadow_vcpu->vcpu->arch.regs, vcpu->arch.regs,
++			       sizeof(cur_shadow_vcpu->vcpu->arch.regs));
 +		}
 +		vcpu->arch.cr2 = native_read_cr2();
 +
@@ -29449,5 +29441,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.42.0
 

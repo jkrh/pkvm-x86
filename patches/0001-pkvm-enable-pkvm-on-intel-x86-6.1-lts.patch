@@ -1,4 +1,4 @@
-From 2072e5347080c19f7d276d7bd9f77f2888f3ba53 Mon Sep 17 00:00:00 2001
+From 2fcbea5044695bd4c1e475f2cb0fa2d62a152f66 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -148,7 +148,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |   81 +-
+ arch/x86/kvm/x86.c                            |   79 +-
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25161 insertions(+), 840 deletions(-)
+ 167 files changed, 25160 insertions(+), 839 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -26535,7 +26535,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..c0a551877599 100644
+index 7144e5166813..6ace02bc591b 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26560,15 +26560,6 @@ index 7144e5166813..c0a551877599 100644
  	default:
  		break;
  	}
-@@ -8373,7 +8381,7 @@ static void init_emulate_ctxt(struct kvm_vcpu *vcpu)
- 	static_call(kvm_x86_get_cs_db_l_bits)(vcpu, &cs_db, &cs_l);
- 
- 	ctxt->gpa_available = false;
--	ctxt->eflags = kvm_get_rflags(vcpu);
-+	/* ctxt->eflags = kvm_get_rflags(vcpu); */
- 	ctxt->tf = (ctxt->eflags & X86_EFLAGS_TF) != 0;
- 
- 	ctxt->eip = kvm_rip_read(vcpu);
 @@ -8854,7 +8862,7 @@ int x86_decode_emulated_instruction(struct kvm_vcpu *vcpu, int emulation_type,
  }
  EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
@@ -29391,5 +29382,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.42.0
 

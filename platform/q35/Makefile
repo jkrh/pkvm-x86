@@ -39,6 +39,10 @@ ifeq ($(DEBUGGER),1)
 QEMUOPTS := $(QEMUOPTS) -S -s
 endif
 
+ifeq ($(BIOS),1)
+QEMUOPTS += -bios $(BASE_DIR)/build/coreboot-host.rom
+endif
+
 ifeq ($(QEMUDEBUG),1)
 QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) -serial stdio -display none"
 else

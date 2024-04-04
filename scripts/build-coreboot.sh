@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-BUILDTGT=0
+TGT=0
 BASEDIR=$PWD
 XGXX=$BASEDIR/coreboot/util/crossgcc/xgcc
 
@@ -14,26 +14,23 @@ while getopts "h?eg" opt; do
 	h|\?)	usage
 		;;
 	e)	CONFIG_PAYLOAD_FILE=$BASEDIR/linux/arch/x86_64/boot/bzImage
-		BUILDTGT=1
+		TGT=host
 		;;
 	g)	CONFIG_PAYLOAD_FILE=$BASEDIR/build/linux/arch/x86_64/boot/bzImage
-		BUILDTGT=2
+		TGT=guest
 		;;
 	esac
 done
 
 cd $BASEDIR/coreboot
-[ $BUILDTGT = 0 ] && usage
+[ $TGT = 0 ] && usage
 [ ! -d "$XGXX" ] && make crossgcc-i386 CPUS=$(nproc)
 
 make KBUILD_DEFCONFIG=$BASEDIR/scripts/q35_defconfig defconfig
 sed -i "/CONFIG_PAYLOAD_FILE=/c\CONFIG_PAYLOAD_FILE=$CONFIG_PAYLOAD_FILE" .config
 make CPUS=$(nproc)
 
-if [ $BUILDTGT = 1 ]; then
-	cp build/coreboot.rom $BASEDIR/build/coreboot-host.rom
-	cp build/cbfs/fallback/ramstage.debug $BASEDIR/build/host-ramstage.debug
-else
-	cp build/coreboot.rom $BASEDIR/build/coreboot-guest.rom
-	cp build/cbfs/fallback/ramstage.debug $BASEDIR/build/guest-ramstage.debug
-fi
+cp build/coreboot.rom $BASEDIR/build/coreboot-$TGT.rom
+cp build/cbfs/fallback/ramstage.debug $BASEDIR/build/$TGT-ramstage.debug
+cp build/cbfs/fallback/romstage.debug $BASEDIR/build/$TGT-romstage.debug
+cp build/cbfs/fallback/bootblock.debug $BASEDIR/build/$TGT-bootblock.debug

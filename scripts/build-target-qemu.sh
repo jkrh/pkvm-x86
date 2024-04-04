@@ -144,7 +144,7 @@ copy_qemu()
 {
 	[ ! -d "$CHROOTDIR/build/qemu/build" ] && mkdir -p $CHROOTDIR/build/qemu/build
 	cd $BASE_DIR/qemu
-	tar cf - . | tar xf - -C $CHROOTDIR/build/qemu
+	tar cf - . | sudo tar xf - -C $CHROOTDIR/build/qemu
 }
 
 do_spice()

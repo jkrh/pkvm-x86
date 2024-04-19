@@ -1,4 +1,4 @@
-From 2fcbea5044695bd4c1e475f2cb0fa2d62a152f66 Mon Sep 17 00:00:00 2001
+From 2ab192de577c3788f2ad122cc57116c17eb8fdfc Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -85,7 +85,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1086 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1102 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -146,7 +146,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
  arch/x86/kvm/vmx/vmx_debug.c                  |  257 ++
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
- arch/x86/kvm/vmx/vmx_lib.h                    |  251 ++
+ arch/x86/kvm/vmx/vmx_lib.h                    |  246 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   79 +-
  arch/x86/mm/init_64.c                         |    2 +-
@@ -177,7 +177,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25160 insertions(+), 839 deletions(-)
+ 167 files changed, 25171 insertions(+), 839 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -10293,10 +10293,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..ad287cf9ba57
+index 000000000000..98e724e034ba
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1086 @@
+@@ -0,0 +1,1102 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -11311,30 +11311,46 @@ index 000000000000..ad287cf9ba57
 +
 +	pkvm_spin_lock(&vm->lock);
 +
++	/*
++	 * If the shadow ept has the mmio marker and the VE emulation is
++	 * configured, route to it
++	 */
 +	pkvm_pgtable_lookup(sept, l2_gpa, &phys, &gprot, &level);
-+	if (is_mmio(gprot)) {
++	if (shadow_vcpu->gve_info && is_mmio(gprot)) {
 +		ret = PKVM_MMIO;
 +		goto out;
 +	}
++	/*
++	 * See what the kvm-high has done and if nothing, route back to
++	 * direct_page_fault
++	 */
 +	pkvm_pgtable_lookup(vept, l2_gpa, &phys, &gprot, &level);
 +	if (phys == INVALID_ADDR) {
-+		/* Guest EPT not valid, back to kvm-high (direct_page_fault)*/
-+		pr_info("%s() pgtable walk of 0x%llx failed for pgd 0x%lx\n", __func__,
-+			l2_gpa, vept->root_pa);
++		pr_info("%s() pgtable walk of 0x%llx failed for pgd 0x%lx\n",
++			__func__, l2_gpa, vept->root_pa);
 +		goto out;
 +	}
++
++	/* Guest EPT error, refuse to handle in shadow ept */
 +	if (is_access_violation(gprot, exit_quali))
-+		/* Guest EPT error, refuse to handle in shadow ept */
 +		goto out;
 +
-+	rsvd_chk_gprot = gprot;
 +	/* is_rsvd_spte() need based on PAGE_SIZE bit */
++	rsvd_chk_gprot = gprot;
 +	if (level != PG_LEVEL_4K)
 +		pgt_ops->pgt_entry_mkhuge(&rsvd_chk_gprot);
 +
++	/*
++	 * Regular emulated MMIO is injected back as misconfiguration via
++	 * the rsvd bits being set. We will attempt to emulate these pages
++	 * by using the emulate.c.
++	 */
 +	if (is_rsvd_spte(&ept_zero_check, rsvd_chk_gprot, level)) {
 +		ret = PKVM_INJECT_EPT_MISC;
 +	} else {
++		/*
++		 * These pages will go via #VE processing, emulated or real.
++		 */
 +		unsigned long level_size = pgt_ops->pgt_level_to_size(level);
 +		unsigned long gpa = ALIGN_DOWN(l2_gpa, level_size);
 +		unsigned long hpa = ALIGN_DOWN(host_gpa2hpa(phys), level_size);
@@ -26222,10 +26238,10 @@ index 000000000000..df881823752e
 +#endif /* __KVM_X86_VMX_DEBUG_H */
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..a8cf4cafb0c1
+index 000000000000..8908c23b059d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,246 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -26343,12 +26359,7 @@ index 000000000000..a8cf4cafb0c1
 +
 +#ifdef CONFIG_PKVM_EMULATED_VE
 +	_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_EPT_VIOLATION_VE;
-+
-+	/* Let host run without pointless traps */
-+	_cpu_based_exec_control &= ~CPU_BASED_USE_IO_BITMAPS;
-+	_cpu_based_exec_control &= ~CPU_BASED_UNCOND_IO_EXITING;
 +#endif
-+
 +	rdmsr_safe(MSR_IA32_VMX_EPT_VPID_CAP,
 +		&vmx_cap->ept, &vmx_cap->vpid);
 +
@@ -29382,5 +29393,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.42.0
+2.34.1
 

@@ -12,7 +12,7 @@ MEM := -m 8G
 #
 # Let's try to stay as close to the HW as possible
 #
-CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
+CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,-waitpkg,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
 CPU := --enable-kvm -cpu host,$(CPUFLAGS) -smp 4
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd

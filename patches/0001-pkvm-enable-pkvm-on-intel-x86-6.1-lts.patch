@@ -1,4 +1,4 @@
-From 2ab192de577c3788f2ad122cc57116c17eb8fdfc Mon Sep 17 00:00:00 2001
+From 9f0e5037833dcb439c946d9defd296108bf492a8 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -65,7 +65,6 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/kvm.c                         |   37 +-
  arch/x86/kernel/msr.c                         |    2 +-
  arch/x86/kernel/setup.c                       |    7 +
- arch/x86/kernel/time.c                        |    4 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
  arch/x86/kvm/Kconfig                          |   33 +
@@ -75,7 +74,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/mmu/mmu.c                        |   53 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   19 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   18 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -85,7 +84,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1102 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1099 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -111,7 +110,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1636 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1633 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -127,7 +126,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  389 ++
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.h            |   11 +
- arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  136 +
+ arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  146 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx.c               |  119 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx.h               |   63 +
@@ -146,7 +145,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
  arch/x86/kvm/vmx/vmx_debug.c                  |  257 ++
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
- arch/x86/kvm/vmx/vmx_lib.h                    |  246 ++
+ arch/x86/kvm/vmx/vmx_lib.h                    |  254 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |   79 +-
  arch/x86/mm/init_64.c                         |    2 +-
@@ -177,7 +176,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 25171 insertions(+), 839 deletions(-)
+ 166 files changed, 25177 insertions(+), 840 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9417,23 +9416,6 @@ index 804a252382da..dbc5b05a099f 100644
  }
  
  #ifdef CONFIG_X86_32
-diff --git a/arch/x86/kernel/time.c b/arch/x86/kernel/time.c
-index e42faa792c07..e3c912fa045a 100644
---- a/arch/x86/kernel/time.c
-+++ b/arch/x86/kernel/time.c
-@@ -100,8 +100,12 @@ static __init void x86_late_time_init(void)
- 	x86_init.irqs.intr_mode_init();
- 	tsc_init();
- 
-+	use_tsc_delay();
-+
-+	/* FIXME:
- 	if (static_cpu_has(X86_FEATURE_WAITPKG))
- 		use_tpause_delay();
-+	 */
- }
- 
- /*
 diff --git a/arch/x86/kernel/traps.c b/arch/x86/kernel/traps.c
 index c0a5a4f225d9..f026ffb62de6 100644
 --- a/arch/x86/kernel/traps.c
@@ -9844,7 +9826,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..ff67c42cfa10 100644
+index c3b0f973375b..3b0e6b5a5c5f 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -9871,19 +9853,7 @@ index c3b0f973375b..ff67c42cfa10 100644
  	else
  		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
  					 fault->pfn, iter->old_spte, fault->prefetch, true,
-@@ -1069,9 +1076,11 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
- 		trace_mark_mmio_spte(rcu_dereference(iter->sptep), iter->gfn,
- 				     new_spte);
- 		ret = RET_PF_EMULATE;
-+		pr_info("%s(): mmio pte 0x%llx\n", __func__, fault->addr);
- 	} else {
- 		trace_kvm_mmu_set_spte(iter->level, iter->gfn,
- 				       rcu_dereference(iter->sptep));
-+		pr_info("%s(): std spte 0x%llx\n", __func__, fault->addr);
- 	}
- 
- 	return ret;
-@@ -1120,6 +1129,7 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
+@@ -1120,6 +1127,7 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
   * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
   * page tables and SPTEs to translate the faulting guest physical address.
   */
@@ -9891,21 +9861,22 @@ index c3b0f973375b..ff67c42cfa10 100644
  int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  {
  	struct kvm_mmu *mmu = vcpu->arch.mmu;
-@@ -1133,6 +1143,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1132,7 +1140,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+ 	trace_kvm_mmu_spte_requested(fault);
  
  	rcu_read_lock();
- 
+-
++/*
 +	pr_info("%s() gpa 0x%llx fault, pgd 0x%llx/0x%llx\n", __func__,
 +		fault->addr, mmu->root.hpa, (u64)phys_to_virt(mmu->root.hpa));
-+
++ */
  	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
  		if (fault->nx_huge_page_workaround_enabled)
  			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1205,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1203,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
-+	pr_info("%s(): ret %d\n", __func__, ret);
 +	if (ret == RET_PF_EMULATE)
 +		pr_info("%s(): emulate gpa 0x%llx\n", __func__, fault->addr);
 +
@@ -10293,10 +10264,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..98e724e034ba
+index 000000000000..a9cdb8294c3a
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1102 @@
+@@ -0,0 +1,1099 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -11325,11 +11296,8 @@ index 000000000000..98e724e034ba
 +	 * direct_page_fault
 +	 */
 +	pkvm_pgtable_lookup(vept, l2_gpa, &phys, &gprot, &level);
-+	if (phys == INVALID_ADDR) {
-+		pr_info("%s() pgtable walk of 0x%llx failed for pgd 0x%lx\n",
-+			__func__, l2_gpa, vept->root_pa);
++	if (phys == INVALID_ADDR)
 +		goto out;
-+	}
 +
 +	/* Guest EPT error, refuse to handle in shadow ept */
 +	if (is_access_violation(gprot, exit_quali))
@@ -18140,10 +18108,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..84183877f19f
+index 000000000000..eafbcfb518f2
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1636 @@
+@@ -0,0 +1,1633 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18978,7 +18946,7 @@ index 000000000000..84183877f19f
 +}
 +
 +/*
-+ * Enter in the host context, exit in the host context. FIXME: nesting.
++ * Enter in the host context, exit in the host context.
 + */
 +int handle_vmptrld(struct kvm_vcpu *vcpu)
 +{
@@ -19071,15 +19039,13 @@ index 000000000000..84183877f19f
 +
 +			/*
 +			 * Write the #VE information physical address IF #VE is
-+			 * supported. If not, we trap and inject exceptions.
-+			 * The use case is primarily MMIO.
++			 * supported.
 +			 */
 +			if (shadow_vcpu_is_protected(shadow_vcpu)) {
 +				memset(&shadow_vcpu->ve_info, 0, sizeof(shadow_vcpu->ve_info));
 +				if (shadow_vcpu->shadow_features & SHADOW_FEATURE_VE)
 +					vmcs_write64(VE_INFO_ADDR, __pkvm_pa(&shadow_vcpu->ve_info));
 +			}
-+
 +			shadow_vcpu->last_cpu = vcpu->cpu;
 +			shadow_vcpu->vmcs02_inited = true;
 +		} else {
@@ -19103,7 +19069,8 @@ index 000000000000..84183877f19f
 +		pkvm_hvcpu->current_shadow_vcpu = shadow_vcpu;
 +
 +		/*
-+		 * Copy back above-saved elements from vmcs12 to vmcs02 and make it shadow
++		 * Copy back above-saved elements from vmcs12 to vmcs02 and make it shadow.
++		 * Since we copy the kvm config, please audit.
 +		 */
 +		copy_shadow_fields_vmcs12_to_vmcs02(vmx, vmcs12);
 +		sync_vmcs12_dirty_fields_to_vmcs02(vmx, vmcs12);
@@ -19679,8 +19646,6 @@ index 000000000000..84183877f19f
 +	case EXIT_REASON_EPT_VIOLATION:
 +		/* EPT violation can be handled by pkvm, no need back to kvm-high */
 +		fgpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
-+		pkvm_info("guest ept violation 0x%llx q 0x%lx\n", fgpa,
-+			 vmx->exit_qualification);
 +		if (nested_handle_ept_violation(cur_shadow_vcpu, fgpa,
 +						vmx->exit_qualification))
 +			return 0;
@@ -22901,10 +22866,10 @@ index 000000000000..95a27c2ac112
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmsr.c b/arch/x86/kvm/vmx/pkvm/hyp/vmsr.c
 new file mode 100644
-index 000000000000..112cb55df5ca
+index 000000000000..ff5b9d6d2ba3
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmsr.c
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,146 @@
 +/*
 + * SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 + * Copyright (C) 2018-2022 Intel Corporation
@@ -22971,6 +22936,7 @@ index 000000000000..112cb55df5ca
 +int handle_read_msr(struct kvm_vcpu *vcpu)
 +{
 +	unsigned long msr = vcpu->arch.regs[VCPU_REGS_RCX];
++	struct vcpu_vmx *vmx = to_vmx(vcpu);
 +	int ret = 0;
 +	u32 low = 0, high = 0;
 +	u64 val;
@@ -22985,6 +22951,10 @@ index 000000000000..112cb55df5ca
 +	}
 +	switch (msr) {
 +	case MSR_IA32_UMWAIT_CONTROL:
++		if (!vmx_has_waitpkg(vmx)) {
++			ret = 1;
++			break;
++		}
 +		pkvm_rdmsr(msr, low, high);
 +		break;
 +	default:
@@ -23001,6 +22971,7 @@ index 000000000000..112cb55df5ca
 +int handle_write_msr(struct kvm_vcpu *vcpu)
 +{
 +	unsigned long msr = vcpu->arch.regs[VCPU_REGS_RCX];
++	struct vcpu_vmx *vmx = to_vmx(vcpu);
 +	u32 low, high;
 +	u64 val;
 +	int ret = 0;
@@ -23017,6 +22988,10 @@ index 000000000000..112cb55df5ca
 +		ret = pkvm_x2apic_msr_write(vcpu, msr, val);
 +		break;
 +	case MSR_IA32_UMWAIT_CONTROL:
++		if (!vmx_has_waitpkg(vmx)) {
++			ret = 1;
++			break;
++		}
 +		pkvm_wrmsrl(msr, val);
 +		break;
 +	default:
@@ -26238,10 +26213,10 @@ index 000000000000..df881823752e
 +#endif /* __KVM_X86_VMX_DEBUG_H */
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..8908c23b059d
+index 000000000000..b5997b3d816d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,254 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -26359,6 +26334,14 @@ index 000000000000..8908c23b059d
 +
 +#ifdef CONFIG_PKVM_EMULATED_VE
 +	_cpu_based_2nd_exec_control &= ~SECONDARY_EXEC_EPT_VIOLATION_VE;
++
++	/*
++	 * Route the guest MMIO exits to emulation until and close
++	 * when/if an alternative arises.
++	 *
++	 * _cpu_based_exec_control &= ~CPU_BASED_UNCOND_IO_EXITING;
++	 * _cpu_based_exec_control &= ~CPU_BASED_USE_IO_BITMAPS;
++	 */
 +#endif
 +	rdmsr_safe(MSR_IA32_VMX_EPT_VPID_CAP,
 +		&vmx_cap->ept, &vmx_cap->vpid);

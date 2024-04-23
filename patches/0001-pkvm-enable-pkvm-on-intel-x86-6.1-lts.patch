@@ -1,4 +1,4 @@
-From 9f0e5037833dcb439c946d9defd296108bf492a8 Mon Sep 17 00:00:00 2001
+From 8ed859c3b292af108dab025ea4f13f8857294911 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -40,7 +40,6 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/configs/nixos_defconfig              | 3529 +++++++++++++++++
  arch/x86/configs/nixos_guest_defconfig        | 2962 ++++++++++++++
  arch/x86/configs/x86_64_defconfig             |    1 +
- arch/x86/crypto/blake2s-glue.c                |    6 +
  arch/x86/include/asm/coco.h                   |    1 +
  arch/x86/include/asm/hypervisor.h             |    2 +
  arch/x86/include/asm/idtentry.h               |    2 +-
@@ -60,10 +59,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/Makefile                  |    1 +
  arch/x86/kernel/cpu/hypervisor.c              |    3 +
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
- arch/x86/kernel/cpu/umwait.c                  |    3 -
  arch/x86/kernel/idt.c                         |    2 +-
  arch/x86/kernel/kvm.c                         |   37 +-
- arch/x86/kernel/msr.c                         |    2 +-
  arch/x86/kernel/setup.c                       |    7 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
@@ -74,7 +71,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/mmu/mmu.c                        |   53 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   18 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   17 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -147,7 +144,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  254 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |   79 +-
+ arch/x86/kvm/x86.c                            |   71 +-
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -176,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 166 files changed, 25177 insertions(+), 840 deletions(-)
+ 163 files changed, 25162 insertions(+), 835 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -8336,23 +8333,6 @@ index 27759236fd60..faf85a3ef4b0 100644
  CONFIG_EARLY_PRINTK_DBGP=y
  CONFIG_DEBUG_BOOT_PARAMS=y
 +CONFIG_RETPOLINE=n
-diff --git a/arch/x86/crypto/blake2s-glue.c b/arch/x86/crypto/blake2s-glue.c
-index aaba21230528..c09b102e2471 100644
---- a/arch/x86/crypto/blake2s-glue.c
-+++ b/arch/x86/crypto/blake2s-glue.c
-@@ -57,6 +57,12 @@ EXPORT_SYMBOL(blake2s_compress);
- 
- static int __init blake2s_mod_init(void)
- {
-+	/* FIXME: */
-+	if (boot_cpu_has(X86_FEATURE_SSSE3)) {
-+		pr_info("disabling blake2s_use_ssse3 due to virtualization\n");
-+		return -ENODEV;
-+	}
-+
- 	if (boot_cpu_has(X86_FEATURE_SSSE3))
- 		static_branch_enable(&blake2s_use_ssse3);
- 
 diff --git a/arch/x86/include/asm/coco.h b/arch/x86/include/asm/coco.h
 index 3d98c3a60d34..065a70448d8a 100644
 --- a/arch/x86/include/asm/coco.h
@@ -9275,20 +9255,6 @@ index 000000000000..e68ae5f3e263
 +	.init.init_platform     = pkvm_init_platform,
 +	.init.x2apic_available  = pkvm_x2apic_available,
 +};
-diff --git a/arch/x86/kernel/cpu/umwait.c b/arch/x86/kernel/cpu/umwait.c
-index ec8064c0ae03..601d3f1b983b 100644
---- a/arch/x86/kernel/cpu/umwait.c
-+++ b/arch/x86/kernel/cpu/umwait.c
-@@ -206,9 +206,6 @@ static int __init umwait_init(void)
- 	struct device *dev;
- 	int ret;
- 
--	if (!boot_cpu_has(X86_FEATURE_WAITPKG))
--		return -ENODEV;
--
- 	/*
- 	 * Cache the original control MSR value before the control MSR is
- 	 * changed. This is the only place where orig_umwait_control_cached
 diff --git a/arch/x86/kernel/idt.c b/arch/x86/kernel/idt.c
 index f5a3374e62cb..dc9fb28a3a19 100644
 --- a/arch/x86/kernel/idt.c
@@ -9371,19 +9337,6 @@ index 796e2f9e8761..277c842f9918 100644
  		pr_info("setup PV sched yield\n");
  	}
  	if (cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN, "x86/kvm:online",
-diff --git a/arch/x86/kernel/msr.c b/arch/x86/kernel/msr.c
-index ed8ac6bcbafb..0a6de685ff53 100644
---- a/arch/x86/kernel/msr.c
-+++ b/arch/x86/kernel/msr.c
-@@ -100,7 +100,7 @@ static int filter_write(u32 reg)
- 		return 0;
- 
- 	pr_warn("Write to unrecognized MSR 0x%x by %s (pid: %d).\n",
--	        reg, current->comm, current->pid);
-+		reg, current->comm, current->pid);
- 	pr_warn("See https://git.kernel.org/pub/scm/linux/kernel/git/tip/tip.git/about for details.\n");
- 
- 	return 0;
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
 index 804a252382da..dbc5b05a099f 100644
 --- a/arch/x86/kernel/setup.c
@@ -9826,7 +9779,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..3b0e6b5a5c5f 100644
+index c3b0f973375b..0c6cb8cb585e 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -9853,15 +9806,7 @@ index c3b0f973375b..3b0e6b5a5c5f 100644
  	else
  		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
  					 fault->pfn, iter->old_spte, fault->prefetch, true,
-@@ -1120,6 +1127,7 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
-  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
-  * page tables and SPTEs to translate the faulting guest physical address.
-  */
-+__attribute__((optimize(0)))
- int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
- {
- 	struct kvm_mmu *mmu = vcpu->arch.mmu;
-@@ -1132,7 +1140,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1132,7 +1139,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	trace_kvm_mmu_spte_requested(fault);
  
  	rcu_read_lock();
@@ -9873,7 +9818,7 @@ index c3b0f973375b..3b0e6b5a5c5f 100644
  	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
  		if (fault->nx_huge_page_workaround_enabled)
  			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1203,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1202,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
@@ -26529,7 +26474,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..6ace02bc591b 100644
+index 7144e5166813..d9c9cb5959b1 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26554,29 +26499,7 @@ index 7144e5166813..6ace02bc591b 100644
  	default:
  		break;
  	}
-@@ -8854,7 +8862,7 @@ int x86_decode_emulated_instruction(struct kvm_vcpu *vcpu, int emulation_type,
- }
- EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
- 
--int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
-+int __x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
- 			    int emulation_type, void *insn, int insn_len)
- {
- 	int r;
-@@ -9044,6 +9052,12 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
- 	return r;
- }
- 
-+int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
-+                            int emulation_type, void *insn, int insn_len)
-+{
-+	return __x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type, insn, insn_len);
-+}
-+
- int kvm_emulate_instruction(struct kvm_vcpu *vcpu, int emulation_type)
- {
- 	return x86_emulate_instruction(vcpu, 0, emulation_type, NULL, 0);
-@@ -9704,11 +9718,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9704,11 +9712,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -26630,7 +26553,7 @@ index 7144e5166813..6ace02bc591b 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -12448,9 +12504,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12498,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -26646,7 +26569,7 @@ index 7144e5166813..6ace02bc591b 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12643,6 +12704,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12698,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -26654,7 +26577,7 @@ index 7144e5166813..6ace02bc591b 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12777,10 +12839,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12833,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {

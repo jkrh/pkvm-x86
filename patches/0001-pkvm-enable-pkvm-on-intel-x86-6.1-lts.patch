@@ -1,4 +1,4 @@
-From 8ed859c3b292af108dab025ea4f13f8857294911 Mon Sep 17 00:00:00 2001
+From 7748b167744ee46d3156ac568943913d9fb6cf48 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -60,7 +60,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kernel/cpu/hypervisor.c              |    3 +
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
  arch/x86/kernel/idt.c                         |    2 +-
- arch/x86/kernel/kvm.c                         |   37 +-
+ arch/x86/kernel/kvm.c                         |    2 +
  arch/x86/kernel/setup.c                       |    7 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25162 insertions(+), 835 deletions(-)
+ 163 files changed, 25136 insertions(+), 826 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9269,7 +9269,7 @@ index f5a3374e62cb..dc9fb28a3a19 100644
  #endif
  };
 diff --git a/arch/x86/kernel/kvm.c b/arch/x86/kernel/kvm.c
-index 796e2f9e8761..277c842f9918 100644
+index 796e2f9e8761..9b4b4f93ef62 100644
 --- a/arch/x86/kernel/kvm.c
 +++ b/arch/x86/kernel/kvm.c
 @@ -46,6 +46,8 @@
@@ -9281,62 +9281,6 @@ index 796e2f9e8761..277c842f9918 100644
  static int kvmapf = 1;
  
  static int __init parse_no_kvmapf(char *arg)
-@@ -533,10 +535,20 @@ static void __send_ipi_mask(const struct cpumask *mask, int vector)
- 		} else if (apic_id > min && apic_id < min + KVM_IPI_CLUSTER_SIZE) {
- 			max = apic_id < max ? max : apic_id;
- 		} else {
--			ret = kvm_hypercall4(KVM_HC_SEND_IPI, (unsigned long)ipi_bitmap,
--				(unsigned long)(ipi_bitmap >> BITS_PER_LONG), min, icr);
--			WARN_ONCE(ret < 0, "kvm-guest: failed to send PV IPI: %ld",
--				  ret);
-+			/* If non-root: */
-+			if (kernel_in_guest_mode) {
-+				ret = kvm_hypercall4(KVM_HC_SEND_IPI,
-+						    (u64)ipi_bitmap,
-+						    (u64)(ipi_bitmap >> BITS_PER_LONG),
-+						    min, icr);
-+				WARN_ONCE(ret < 0, "kvm-guest: failed to send PV IPI: %ld",
-+					  ret);
-+			} else {
-+				pr_err("kvm-guest: attempting a hypercall while vmx root\n");
-+				ret = -EFAULT;
-+				dump_stack();
-+			}
-+
- 			min = max = apic_id;
- 			ipi_bitmap = 0;
- 		}
-@@ -544,10 +556,17 @@ static void __send_ipi_mask(const struct cpumask *mask, int vector)
- 	}
- 
- 	if (ipi_bitmap) {
--		ret = kvm_hypercall4(KVM_HC_SEND_IPI, (unsigned long)ipi_bitmap,
--			(unsigned long)(ipi_bitmap >> BITS_PER_LONG), min, icr);
--		WARN_ONCE(ret < 0, "kvm-guest: failed to send PV IPI: %ld",
--			  ret);
-+		if (kernel_in_guest_mode) {
-+			ret = kvm_hypercall4(KVM_HC_SEND_IPI, (unsigned long)ipi_bitmap,
-+					    (unsigned long)(ipi_bitmap >> BITS_PER_LONG),
-+					    min, icr);
-+				WARN_ONCE(ret < 0, "kvm-guest: failed to send PV IPI: %ld",
-+					  ret);
-+		} else {
-+			pr_err("kvm-guest: attempting a hypercall while vmx root\n");
-+			ret = -EFAULT;
-+			dump_stack();
-+		}
- 	}
- 
- 	local_irq_restore(flags);
-@@ -847,7 +866,7 @@ static void __init kvm_guest_init(void)
- 
- 	smp_ops.smp_prepare_boot_cpu = kvm_smp_prepare_boot_cpu;
- 	if (pv_sched_yield_supported()) {
--		smp_ops.send_call_func_ipi = kvm_smp_send_call_func_ipi;
-+		//smp_ops.send_call_func_ipi = kvm_smp_send_call_func_ipi;
- 		pr_info("setup PV sched yield\n");
- 	}
- 	if (cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN, "x86/kvm:online",
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
 index 804a252382da..dbc5b05a099f 100644
 --- a/arch/x86/kernel/setup.c

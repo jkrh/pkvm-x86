@@ -7,13 +7,13 @@ IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=on rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
-MACHINE := -machine q35 -device intel-iommu,aw-bits=48,device-iotlb=on
+MACHINE := -machine q35,mem-merge=off -device intel-iommu,aw-bits=48,device-iotlb=on
 MEM := -m 8G
 #
 # Let's try to stay as close to the HW as possible
 #
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
-CPU := --enable-kvm -cpu host,$(CPUFLAGS) -smp 4
+CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22

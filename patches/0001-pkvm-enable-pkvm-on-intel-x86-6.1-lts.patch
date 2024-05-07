@@ -1,4 +1,4 @@
-From 7748b167744ee46d3156ac568943913d9fb6cf48 Mon Sep 17 00:00:00 2001
+From 4b75ffa5adfe43b074fbee14b14136bf3f6ede40 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -71,7 +71,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/mmu/mmu.c                        |   53 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   17 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   18 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -107,7 +107,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1633 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1652 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -166,14 +166,14 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
- virt/kvm/kvm_main.c                           |   61 +-
+ virt/kvm/kvm_main.c                           |   65 +-
  virt/kvm/pkvm/buddy_memory.h                  |   36 +
  virt/kvm/pkvm/gfp.h                           |   35 +
  .../hyp/nvhe => virt/kvm/pkvm}/page_alloc.c   |  135 +-
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25136 insertions(+), 826 deletions(-)
+ 163 files changed, 25160 insertions(+), 826 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -9723,7 +9723,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..0c6cb8cb585e 100644
+index c3b0f973375b..1ac7ec9e2ee5 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -9762,13 +9762,14 @@ index c3b0f973375b..0c6cb8cb585e 100644
  	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
  		if (fault->nx_huge_page_workaround_enabled)
  			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1202,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1202,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
++/*
 +	if (ret == RET_PF_EMULATE)
 +		pr_info("%s(): emulate gpa 0x%llx\n", __func__, fault->addr);
-+
++ */
  	return ret;
  }
  
@@ -17997,10 +17998,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..eafbcfb518f2
+index 000000000000..09c995eece3f
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1633 @@
+@@ -0,0 +1,1652 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18010,6 +18011,7 @@ index 000000000000..eafbcfb518f2
 +#include <asm/pkvm.h>
 +#include <capabilities.h>
 +#include <vmx/vmx_debug.h>
++#include <linux/ramlog.h>
 +#include "pkvm_hyp.h"
 +#include "nested.h"
 +#include "cpu.h"
@@ -18017,6 +18019,7 @@ index 000000000000..eafbcfb518f2
 +#include "ept.h"
 +#include "debug.h"
 +#include "mem_protect.h"
++#include "asm/apicdef.h"
 +
 +/*
 + * Not support shadow vmcs & vmfunc;
@@ -18036,6 +18039,23 @@ index 000000000000..eafbcfb518f2
 +
 +struct vmcs *host_vmcs = 0;
 +extern u64 host_eptp;
++
++__attribute__((unused))
++char *print_apicstate(void)
++{
++	char *s = __rlogp();
++
++	__ramlog("APIC_ID	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ID)));
++	__ramlog("APIC_LVR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_LVR)));
++	__ramlog("APIC_ISR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ISR)));
++	__ramlog("APIC_TMR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_TMR)));
++	__ramlog("APIC_IRR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_IRR)));
++	__ramlog("APIC_ICR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ICR)));
++	__ramlog("APIC_ICR2	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ICR2)));
++	__ramlog("APIC_EFEAT	0x%x\n", ioread32((void *)(APIC_BASE + APIC_EFEAT)));
++
++	return s;
++}
 +
 +bool is_vmx_msr(unsigned long msr)
 +{
@@ -28379,11 +28399,11 @@ index 3ca3db020e0e..e556fcf5036a 100644
  struct kvm_vcpu_stat_generic {
 diff --git a/include/linux/ramlog.h b/include/linux/ramlog.h
 new file mode 100644
-index 000000000000..09c736a37ef2
+index 000000000000..3f30807b761d
 --- /dev/null
 +++ b/include/linux/ramlog.h
 @@ -0,0 +1,17 @@
-+#define RAMLOGSZ (2 * PAGE_SIZE)
++#define RAMLOGSZ (4 * PAGE_SIZE)
 +
 +#ifdef CONFIG_DEBUG_KERNEL
 +extern char __rlog[];
@@ -28436,7 +28456,7 @@ index 960c7e93d1a9..57bdce3619f4 100644
   * hypercalls use architecture specific
   */
 diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
-index cc53fb77f77c..65abe15fed65 100644
+index cc53fb77f77c..ac70ee8f93ec 100644
 --- a/kernel/printk/printk.c
 +++ b/kernel/printk/printk.c
 @@ -408,6 +408,13 @@ static char __log_buf[__LOG_BUF_LEN] __aligned(LOG_ALIGN);
@@ -28457,7 +28477,7 @@ index cc53fb77f77c..65abe15fed65 100644
  	console_lock_spinning_enable();
  
  	stop_critical_timings();	/* don't trace print latency */
-+#ifdef PLEASE_MAKE_ME_A_PROPER_KCONFIG
++#ifndef CONFIG_USE_SYNC_PRINTK
  	call_console_driver(con, write_text, len, dropped_text);
  	start_critical_timings();
 +#else
@@ -28516,7 +28536,7 @@ index 71b290b6469d..610618432f3f 100644
  #define PIN_BASED_NMI_EXITING			0x00000008
  #define PIN_BASED_VIRTUAL_NMIS			0x00000020
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8123f4d15930..20b793772304 100644
+index 8123f4d15930..c730a6f9502a 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -55,6 +55,7 @@
@@ -28620,25 +28640,29 @@ index 8123f4d15930..20b793772304 100644
  {
  	/* Add the new memslot to the inactive set and activate. */
  	kvm_replace_memslot(kvm, NULL, new);
-@@ -3001,6 +3040,8 @@ static int __kvm_read_guest_page(struct kvm_memory_slot *slot, gfn_t gfn,
+@@ -3001,6 +3040,10 @@ static int __kvm_read_guest_page(struct kvm_memory_slot *slot, gfn_t gfn,
  	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
  	if (kvm_is_error_hva(addr))
  		return -EFAULT;
++/*
 +	pr_info("%s(): gpa 0x%llx host 0x%lx len %u\n", __func__,
 +		(gfn << PAGE_SHIFT) + offset, addr, len);
++ */
  	r = __copy_from_user(data, (void __user *)addr + offset, len);
  	if (r)
  		return -EFAULT;
-@@ -3103,6 +3144,8 @@ static int __kvm_write_guest_page(struct kvm *kvm,
+@@ -3103,6 +3146,10 @@ static int __kvm_write_guest_page(struct kvm *kvm,
  	addr = gfn_to_hva_memslot(memslot, gfn);
  	if (kvm_is_error_hva(addr))
  		return -EFAULT;
++/*
 +	pr_info("%s(): gpa 0x%llx host 0x%lx len %u\n", __func__,
 +		(gfn << PAGE_SHIFT) + offset, addr, len);
++ */
  	r = __copy_to_user((void __user *)addr + offset, data, len);
  	if (r)
  		return -EFAULT;
-@@ -5908,7 +5951,7 @@ static void check_processor_compat(void *data)
+@@ -5908,7 +5955,7 @@ static void check_processor_compat(void *data)
  }
  
  int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
@@ -28647,7 +28671,7 @@ index 8123f4d15930..20b793772304 100644
  {
  	struct kvm_cpu_compat_check c;
  	int r;
-@@ -5946,6 +5989,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -5946,6 +5993,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  			goto out_free_2;
  	}
  

@@ -4,7 +4,7 @@ VMLINUX := $(KERNEL_DIR)/vmlinux
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 
 #KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr loglevel=8 intel_iommu=sm_on rw
-KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=on rw
+KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=on rw csdlock_debug=1 nox2apic
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MACHINE := -machine q35,mem-merge=off -device intel-iommu,aw-bits=48,device-iotlb=on

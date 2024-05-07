@@ -11,6 +11,10 @@ define-prefix vmx
 define-prefix vmx vmcs
 define-prefix vmx msr
 
+define lapics
+  printf "%s", print_apicstate()
+end
+
 define vmx vmcs
   if $argc == 0
     print "error: vmx vmcs [format] <offset>"

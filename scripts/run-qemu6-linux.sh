@@ -182,11 +182,11 @@ SCREEN="-nographic"
 #
 [ -z "$MEM" ] && MEM=4096
 MACHINE="-machine q35 -device intel-iommu,aw-bits=48,device-iotlb=on"
-CPUFLAGS="+kvm-pv-enforce-cpuid,+vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
+CPUFLAGS="+kvm-pv-enforce-cpuid,-vmx,-waitpkg,+ssse3,-tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
 CPU="--accel kvm,kernel-irqchip=on -cpu host,$CPUFLAGS -smp 2"
 
 DRIVE="-drive file=$IMAGE,if=virtio,format=qcow2"
-KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyS0 ignore_loglevel swiotlb=force noapic acpi=off"
+KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyS0 earlyprintk=serial console=uart[8250],io,0x3f8 ignore_loglevel swiotlb=force"
 NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.1,net=192.168.8.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.8.3:22"
 QEMUOPTS="${CPU} ${SMP} ${MACHINE} -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . "
 if [ "$BIOS" = "1" ]; then

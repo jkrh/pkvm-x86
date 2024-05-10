@@ -1,4 +1,4 @@
-From 4b75ffa5adfe43b074fbee14b14136bf3f6ede40 Mon Sep 17 00:00:00 2001
+From 31a00fafb909edc7c0191b5fd7c56834d0989409 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -107,7 +107,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1652 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1664 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25160 insertions(+), 826 deletions(-)
+ 163 files changed, 25172 insertions(+), 826 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -17998,10 +17998,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..09c995eece3f
+index 000000000000..b15bcd5f6396
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1652 @@
+@@ -0,0 +1,1664 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18032,6 +18032,7 @@ index 000000000000..09c995eece3f
 +	(SECONDARY_EXEC_SHADOW_VMCS | 		\
 +	 SECONDARY_EXEC_ENABLE_VMFUNC | 	\
 +	 SECONDARY_EXEC_DESC)
++#define APIC_BASE_PHYS_MASK GENMASK_ULL(get_max_physaddr_bits(), 12)
 +
 +static const unsigned int vmx_msrs[] = {
 +	LIST_OF_VMX_MSRS
@@ -18043,16 +18044,27 @@ index 000000000000..09c995eece3f
 +__attribute__((unused))
 +char *print_apicstate(void)
 +{
-+	char *s = __rlogp();
++	u64 apicbase_p, apicbase_v;
++	char *s;
 +
-+	__ramlog("APIC_ID	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ID)));
-+	__ramlog("APIC_LVR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_LVR)));
-+	__ramlog("APIC_ISR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ISR)));
-+	__ramlog("APIC_TMR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_TMR)));
-+	__ramlog("APIC_IRR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_IRR)));
-+	__ramlog("APIC_ICR	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ICR)));
-+	__ramlog("APIC_ICR2	0x%x\n", ioread32((void *)(APIC_BASE + APIC_ICR2)));
-+	__ramlog("APIC_EFEAT	0x%x\n", ioread32((void *)(APIC_BASE + APIC_EFEAT)));
++	pkvm_rdmsrl(MSR_IA32_APICBASE, apicbase_p);
++	apicbase_v = (u64)pkvm_iophys_to_virt(apicbase_p & APIC_BASE_PHYS_MASK);
++	s = __rlogp();
++
++	__ramlog("APIC_BASE		0x%llx\n", apicbase_p);
++	__ramlog("APIC_ID		0x%x\n", ioread32((void *)(apicbase_v + APIC_ID)));
++	__ramlog("APIC_LVR		0x%x\n", ioread32((void *)(apicbase_v + APIC_LVR)));
++	__ramlog("APIC_VERSION		0x%x\n", GET_APIC_VERSION(ioread32((void *)(apicbase_v + APIC_LVR))));
++	__ramlog("APIC_XAPIC		0x%x\n", APIC_XAPIC(ioread32((void *)(apicbase_v + APIC_LVR))));
++	__ramlog("APIC_X2APIC		0x%llx\n", apicbase_p & X2APIC_ENABLE);
++	__ramlog("APIC_EXT_SPACE	0x%x\n", APIC_EXT_SPACE(ioread32((void *)(apicbase_v + APIC_LVR))));
++	__ramlog("APIC_TASKPRI		0x%x\n", ioread32((void *)(apicbase_v + APIC_TASKPRI)));
++	__ramlog("APIC_PROCPRI		0x%x\n", ioread32((void *)(apicbase_v + APIC_PROCPRI)));
++	__ramlog("APIC_ISR		0x%x\n", ioread32((void *)(apicbase_v + APIC_ISR)));
++	__ramlog("APIC_TMR		0x%x\n", ioread32((void *)(apicbase_v + APIC_TMR)));
++	__ramlog("APIC_IRR		0x%x\n", ioread32((void *)(apicbase_v + APIC_IRR)));
++	__ramlog("APIC_ESR		0x%x\n", ioread32((void *)(apicbase_v + APIC_ESR)));
++	__ramlog("APIC_EFEAT		0x%x\n", ioread32((void *)(apicbase_v + APIC_EFEAT)));
 +
 +	return s;
 +}

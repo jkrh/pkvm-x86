@@ -1,4 +1,4 @@
-#!/bin/sh -e
+#!/bin/bash -e
 
 USER=$(whoami)
 
@@ -174,26 +174,27 @@ fi
 #
 #VDAGENT="-device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent"
 #SPICEOPTS="$SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migration=on,streaming-video=all,playback-compression=off,disable-agent-file-xfer=off"
+#SCREEN="-device virtio-gpu-pci -spice $SPICEOPTS $VDAGENT"
+SCREEN="-nographic"
 
 #
 # Machine settings
 #
 [ -z "$MEM" ] && MEM=4096
-[ -z "$SMP" ] && SMP="-smp 4"
-#[ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice"a
-#[ -z "$CONSOLE" ] && CONSOLE="-chardev stdio,mux=on,id=vport0 -mon chardev=vport0,mode=readline -serial chardev:vport0 -device virtio-serial -device virtconsole,chardev=vport0,id=vport0"
+MACHINE="-machine q35 -device intel-iommu,aw-bits=48,device-iotlb=on"
+CPUFLAGS="+kvm-pv-enforce-cpuid,+vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
+CPU="--accel kvm,kernel-irqchip=on -cpu host,$CPUFLAGS -smp 2"
 
-CPU="-enable-kvm -cpu host"
-#RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
-#BALLOON="-device virtio-balloon-pci,id=balloon0"
 DRIVE="-drive file=$IMAGE,if=virtio,format=qcow2"
-KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyS0 loglevel=8"
-#NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.1,net=192.168.8.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.8.3:22"
-QEMUOPTS="${CPU} ${SMP} -M pc -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . -portrait"
-#SCREEN="-device virtio-gpu-pci -spice $SPICEOPTS $VDAGENT"
-SCREEN="-nographic"
+KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyS0 ignore_loglevel swiotlb=force noapic acpi=off"
+NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.1,net=192.168.8.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.8.3:22"
+QEMUOPTS="${CPU} ${SMP} ${MACHINE} -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . "
+if [ "$BIOS" = "1" ]; then
+QEMUOPTS="$QEMUOPTS -bios coreboot-guest.rom"
+fi
 
-[ -n "$ENABLE_VIRTIO_FS" ] && SHARED_FS="-chardev socket,id=char0,path=/tmp/vfsd.sock -device vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=katimfs -object memory-backend-file,id=mem,size=${MEM}m,mem-path=/dev/shm,share=on -numa node,memdev=mem"
+#[ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice"
+#[ -z "$CONSOLE" ] && CONSOLE="-chardev stdio,mux=on,id=vport0 -mon chardev=vport0,mode=readline -serial chardev:vport0 -device virtio-serial -device virtconsole,chardev=vport0,id=vport0"
 
 #
 # Finally the qemu invocation with some helper output

@@ -1,4 +1,4 @@
-From 31a00fafb909edc7c0191b5fd7c56834d0989409 Mon Sep 17 00:00:00 2001
+From 479dce8ae4575e723f3479165eca31a6302722ba Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -33,7 +33,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
  arch/x86/coco/pkvm/Makefile                   |    3 +
- arch/x86/coco/pkvm/pkvm.c                     |  134 +
+ arch/x86/coco/pkvm/pkvm.c                     |  131 +
  arch/x86/coco/pkvm/pkvmcall.S                 |   42 +
  arch/x86/coco/tdx/tdx.c                       |  115 +-
  arch/x86/coco/virt_exception.c                |  126 +
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25172 insertions(+), 826 deletions(-)
+ 163 files changed, 25169 insertions(+), 826 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1350,10 +1350,10 @@ index 000000000000..7896f6d4f4b2
 +obj-y += pkvm.o pkvmcall.o
 diff --git a/arch/x86/coco/pkvm/pkvm.c b/arch/x86/coco/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..0f3a09ee3fac
+index 000000000000..156fd67a8be7
 --- /dev/null
 +++ b/arch/x86/coco/pkvm/pkvm.c
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,131 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#undef pr_fmt
@@ -1372,7 +1372,11 @@ index 000000000000..0f3a09ee3fac
 +#include <asm/virt_exception.h>
 +
 +static bool pkvm_guest_detected;
-+static struct ve_info *gve;
++
++#ifdef CONFIG_PKVM_EMULATED_VE
++static u8 gve_page[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
++static struct ve_info *gve = (struct ve_info *)gve_page;
++#endif
 +
 +bool pkvm_is_protected_guest(void)
 +{
@@ -1473,15 +1477,8 @@ index 000000000000..0f3a09ee3fac
 +	pr_info("enabling PKVM guest support!\n");
 +	pkvm_guest_detected = true;
 +#ifdef CONFIG_PKVM_EMULATED_VE
-+	int r;
-+
-+	gve = page_to_virt(alloc_pages(GFP_KERNEL, 0));
-+	if (!gve)
-+		panic("Out of memory?\n");
-+	/* kvm_hypercall2(PKVM_GHC_SHARE_MEM, __pa(gve), PAGE_SIZE); */
-+	r = kvm_hypercall1(PKVM_GHC_SET_VE_INFO, __pa(gve));
-+	if (!r)
-+		panic("PKVM_GHC_SET_VE_INFO returns %d\n", r);
++	kvm_hypercall1(PKVM_GHC_SET_VE_INFO, __pa(gve_page));
++	/* kvm_hypercall2(PKVM_GHC_SHARE_MEM, __pa(gve_page), PAGE_SIZE); */
 +#endif
 +	ve_x86_ops.mmio_read = mmio_read;
 +	ve_x86_ops.mmio_write = mmio_write;
@@ -17998,7 +17995,7 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..b15bcd5f6396
+index 000000000000..0a892c933d07
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 @@ -0,0 +1,1664 @@
@@ -18051,7 +18048,7 @@ index 000000000000..b15bcd5f6396
 +	apicbase_v = (u64)pkvm_iophys_to_virt(apicbase_p & APIC_BASE_PHYS_MASK);
 +	s = __rlogp();
 +
-+	__ramlog("APIC_BASE		0x%llx\n", apicbase_p);
++	__ramlog("APIC_BASE		0x%llx -> 0x%llx\n", apicbase_p, apicbase_v);
 +	__ramlog("APIC_ID		0x%x\n", ioread32((void *)(apicbase_v + APIC_ID)));
 +	__ramlog("APIC_LVR		0x%x\n", ioread32((void *)(apicbase_v + APIC_LVR)));
 +	__ramlog("APIC_VERSION		0x%x\n", GET_APIC_VERSION(ioread32((void *)(apicbase_v + APIC_LVR))));

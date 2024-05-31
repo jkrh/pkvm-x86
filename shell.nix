@@ -10,6 +10,7 @@ mkShell {
   inputsFrom = [
     linuxPackages.kernel
     qemu_kvm
+    crosvm
   ];
   hardeningDisable = [ "fortify" ];
 }

@@ -1,4 +1,4 @@
-From d2ca45f727083024bc16707bde07cce35ce8529a Mon Sep 17 00:00:00 2001
+From 997d31dced1cb2326f69ed4267c468d0f0cef822 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -71,7 +71,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/mmu/mmu.c                        |   53 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   18 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   22 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -81,7 +81,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1099 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1105 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -107,11 +107,11 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1664 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1685 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
- arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  801 ++++
+ arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  802 ++++
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  155 +
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  469 +++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
@@ -173,7 +173,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 163 files changed, 25170 insertions(+), 826 deletions(-)
+ 163 files changed, 25202 insertions(+), 826 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1820,7 +1820,7 @@ index 000000000000..15db92c24787
 +}
 diff --git a/arch/x86/configs/nixos_defconfig b/arch/x86/configs/nixos_defconfig
 new file mode 100644
-index 000000000000..3461fb350a24
+index 000000000000..49c11973804b
 --- /dev/null
 +++ b/arch/x86/configs/nixos_defconfig
 @@ -0,0 +1,3529 @@
@@ -1943,7 +1943,7 @@ index 000000000000..3461fb350a24
 +CONFIG_KVM_INTEL=y
 +CONFIG_PKVM_INTEL=y
 +CONFIG_PKVM_INTEL_DEBUG=y
-+CONFIG_PKVM_EMULATED_VE=y
++# CONFIG_PKVM_EMULATED_VE is not set
 +CONFIG_X86_SGX_KVM=y
 +CONFIG_KVM_AMD=y
 +CONFIG_KPROBES=y
@@ -5355,7 +5355,7 @@ index 000000000000..3461fb350a24
 +CONFIG_MEMTEST=y
 diff --git a/arch/x86/configs/nixos_guest_defconfig b/arch/x86/configs/nixos_guest_defconfig
 new file mode 100644
-index 000000000000..f6da572d3438
+index 000000000000..283084535c4e
 --- /dev/null
 +++ b/arch/x86/configs/nixos_guest_defconfig
 @@ -0,0 +1,2963 @@
@@ -5406,7 +5406,7 @@ index 000000000000..f6da572d3438
 +CONFIG_PARAVIRT_SPINLOCKS=y
 +CONFIG_PVH=y
 +CONFIG_PKVM_GUEST=y
-+CONFIG_PKVM_EMULATED_VE=y
++# CONFIG_PKVM_EMULATED_VE is not set
 +CONFIG_NR_CPUS=384
 +CONFIG_X86_REROUTE_FOR_BROKEN_BOOT_IRQS=y
 +CONFIG_X86_MCE_INJECT=y
@@ -9721,7 +9721,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..1ac7ec9e2ee5 100644
+index c3b0f973375b..eaff8bd75bd7 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -9732,7 +9732,7 @@ index c3b0f973375b..1ac7ec9e2ee5 100644
  
  static bool __read_mostly tdp_mmu_enabled = true;
  module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0644);
-@@ -1037,8 +1038,14 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
+@@ -1037,8 +1038,10 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
  	bool wrprot = false;
  
  	WARN_ON(sp->role.level != fault->goal_level);
@@ -9740,15 +9740,27 @@ index c3b0f973375b..1ac7ec9e2ee5 100644
 +	if (unlikely(!fault->slot)) {
  		new_spte = make_mmio_spte(vcpu, iter->gfn, ACC_ALL);
 +
-+#ifndef CONFIG_PKVM_EMULATED_VE
-+		if (pkvm_set_mmio_ve(vcpu, iter->gfn))
-+			return RET_PF_RETRY;
-+#endif
 +	}
  	else
  		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
  					 fault->pfn, iter->old_spte, fault->prefetch, true,
-@@ -1132,7 +1139,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1068,7 +1071,15 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
+ 		vcpu->stat.pf_mmio_spte_created++;
+ 		trace_mark_mmio_spte(rcu_dereference(iter->sptep), iter->gfn,
+ 				     new_spte);
++#ifdef CONFIG_PKVM_EMULATED_VE
++		if (pkvm_set_mmio_ve(vcpu, iter->gfn)) {
++			ret = RET_PF_RETRY;
++		} else {
++			ret = RET_PF_EMULATE;
++		}
++#else
+ 		ret = RET_PF_EMULATE;
++#endif
+ 	} else {
+ 		trace_kvm_mmu_set_spte(iter->level, iter->gfn,
+ 				       rcu_dereference(iter->sptep));
+@@ -1132,7 +1143,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	trace_kvm_mmu_spte_requested(fault);
  
  	rcu_read_lock();
@@ -9760,7 +9772,7 @@ index c3b0f973375b..1ac7ec9e2ee5 100644
  	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
  		if (fault->nx_huge_page_workaround_enabled)
  			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1202,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1206,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
@@ -10152,10 +10164,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..a9cdb8294c3a
+index 000000000000..1722cfe767cd
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1099 @@
+@@ -0,0 +1,1105 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -11150,9 +11162,23 @@ index 000000000000..a9cdb8294c3a
 +	return true;
 +}
 +
++static int pkvm_add_shadow_ept_mapping(struct pkvm_shadow_vm *vm,
++				       u64 fault_gpa, unsigned long phys,
++				       u64 prot, int level)
++{
++	unsigned long level_size = vm->sept_desc.sept.pgt_ops->pgt_level_to_size(level);
++	unsigned long gpa = ALIGN_DOWN(fault_gpa, level_size);
++	unsigned long hpa = ALIGN_DOWN(host_gpa2hpa(phys), level_size);
++
++	if (!allow_shadow_ept_mapping(vm, gpa, hpa, level_size))
++		return -1;
++
++	return pkvm_pgtable_map(&vm->sept_desc.sept, gpa, hpa, level_size, 0, prot, NULL);
++}
++
 +static int is_mmio(u64 spte)
 +{
-+	return ((spte & shadow_mmio_mask) == shadow_mmio_value);
++	return spte == SHADOW_EPT_MMIO_ENTRY;
 +}
 +
 +enum sept_handle_ret
@@ -11179,16 +11205,13 @@ index 000000000000..a9cdb8294c3a
 +		ret = PKVM_MMIO;
 +		goto out;
 +	}
++
 +	/*
 +	 * See what the kvm-high has done and if nothing, route back to
 +	 * direct_page_fault
 +	 */
 +	pkvm_pgtable_lookup(vept, l2_gpa, &phys, &gprot, &level);
 +	if (phys == INVALID_ADDR)
-+		goto out;
-+
-+	/* Guest EPT error, refuse to handle in shadow ept */
-+	if (is_access_violation(gprot, exit_quali))
 +		goto out;
 +
 +	/* is_rsvd_spte() need based on PAGE_SIZE bit */
@@ -11203,26 +11226,21 @@ index 000000000000..a9cdb8294c3a
 +	 */
 +	if (is_rsvd_spte(&ept_zero_check, rsvd_chk_gprot, level)) {
 +		ret = PKVM_INJECT_EPT_MISC;
-+	} else {
-+		/*
-+		 * These pages will go via #VE processing, emulated or real.
-+		 */
-+		unsigned long level_size = pgt_ops->pgt_level_to_size(level);
-+		unsigned long gpa = ALIGN_DOWN(l2_gpa, level_size);
-+		unsigned long hpa = ALIGN_DOWN(host_gpa2hpa(phys), level_size);
-+		/*
-+		 * Still set SUPPRESS_VE bit here as some mapping may still
-+		 * cause EPT_VIOLATION and we want these EPT_VIOLATION to cause
-+		 * vmexit.
-+		 */
-+		if (!is_mmio(gprot))
-+			prot = (gprot & EPT_PROT_MASK) | SUPPRESS_VE;
-+		else
-+			prot = (gprot & HOST_EPT_DEF_MMIO_PROT) | SUPPRESS_VE;
++		goto out;
++	}
 +
-+		if (allow_shadow_ept_mapping(vm, gpa, hpa, level_size) &&
-+		    !pkvm_pgtable_map(sept, gpa, hpa, level_size, 0, prot, NULL))
-+			ret = PKVM_HANDLED;
++	/* Guest EPT error, refuse to handle in shadow ept */
++	if (is_access_violation(gprot, exit_quali))
++		goto out;
++
++	/*
++	 * Still set SUPPRESS_VE bit here as some mapping may still
++	 * cause EPT_VIOLATION and we want these EPT_VIOLATION to cause
++	 * vmexit.
++	 */
++	prot = (gprot & EPT_PROT_MASK) | EPT_PROT_DEF;
++	if (!pkvm_add_shadow_ept_mapping(vm, l2_gpa, phys, prot, level)) {
++		ret = PKVM_HANDLED;
 +	}
 +out:
 +	pkvm_spin_unlock(&vm->lock);
@@ -17996,10 +18014,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..0a892c933d07
+index 000000000000..a797276d0f4d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1664 @@
+@@ -0,0 +1,1685 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -19382,18 +19400,45 @@ index 000000000000..0a892c933d07
 +	return 0;
 +}
 +
++static int nested_inject_ve(struct shadow_vcpu_state *shadow_vcpu,
++			    u64 exit_qualification)
++{
++	u32 intr_info;
++
++	if (!shadow_vcpu->gve_info) {
++		// pkvm_err("#VE emulated MMIO without active gve\n");
++		return 1;
++	}
++
++	if (shadow_vcpu->gve_info->valid == 0xffffffff) {
++		pkvm_err("#VE info not valid\n");
++		return 1;
++	}
++
++	/* Fill it up.. */
++	shadow_vcpu->gve_info->exit_reason = EXIT_REASON_EPT_VIOLATION;
++	shadow_vcpu->gve_info->exit_qual = exit_qualification;
++	shadow_vcpu->gve_info->gla = vmcs_readl(GUEST_LINEAR_ADDRESS);
++	shadow_vcpu->gve_info->gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
++	shadow_vcpu->gve_info->valid = 0xffffffff;
++
++	/* Fire it up.. */
++	intr_info = VE_VECTOR | INTR_INFO_VALID_MASK | INTR_TYPE_HARD_EXCEPTION;
++	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr_info);
++
++	return 0;
++}
++
 +static bool nested_handle_ept_violation(struct shadow_vcpu_state *shadow_vcpu,
 +					u64 l2_gpa, u64 exit_quali)
 +{
 +	enum sept_handle_ret ret = pkvm_handle_shadow_ept_violation(shadow_vcpu,
 +								    l2_gpa, exit_quali);
 +	bool handled = false;
-+	u32 intr_info;
++	struct vcpu_vmx *vmx = to_vmx(shadow_vcpu->vcpu);
 +
 +	switch (ret) {
 +	case PKVM_INJECT_EPT_MISC: {
-+		struct vcpu_vmx *vmx = to_vmx(shadow_vcpu->vcpu);
-+
 +		vmx->exit_reason.full = EXIT_REASON_EPT_MISCONFIG;
 +		/*
 +		 * Inject EPT_MISCONFIG vmexit reason if can directly modify
@@ -19404,28 +19449,19 @@ index 000000000000..0a892c933d07
 +			vmcs_write32(VM_EXIT_REASON, EXIT_REASON_EPT_MISCONFIG);
 +		break;
 +	}
-+	case PKVM_MMIO:
-+		if (!shadow_vcpu->gve_info) {
-+			pkvm_err("#VE emulated MMIO without active gve\n");
++	case PKVM_MMIO: {
++		if (!nested_inject_ve(shadow_vcpu, exit_quali)) {
 +			handled = true;
 +			break;
 +		}
-+		if (shadow_vcpu->gve_info->valid == 0xffffffff) {
-+			handled = true;
-+			break;
-+		}
-+		/* Fill it up.. */
-+		shadow_vcpu->gve_info->exit_reason = vmcs_read32(VM_EXIT_REASON);
-+		shadow_vcpu->gve_info->exit_qual = exit_quali;
-+		shadow_vcpu->gve_info->gla = vmcs_readl(GUEST_LINEAR_ADDRESS);
-+		shadow_vcpu->gve_info->gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
-+		shadow_vcpu->gve_info->valid = 0xffffffff;
 +
-+		/* Fire it up.. */
-+		intr_info = VE_VECTOR | INTR_INFO_VALID_MASK | INTR_TYPE_HARD_EXCEPTION;
-+		vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr_info);
-+		handled = true;
++		/* Unable to inject VE, forward to kvm high */
++		vmx->exit_reason.full = EXIT_REASON_EPT_MISCONFIG;
++
++		if (vmx_has_vmwrite_any_field())
++			vmcs_write32(VM_EXIT_REASON, EXIT_REASON_EPT_MISCONFIG);
 +		break;
++	}
 +	case PKVM_HANDLED:
 +		handled = true;
 +		break;
@@ -19467,17 +19503,20 @@ index 000000000000..0a892c933d07
 +static int pkvm_set_ve_info(struct kvm_vcpu *vcpu, u64 addr)
 +{
 +	struct shadow_vcpu_state *shadow_vcpu = to_pkvm_hvcpu(vcpu)->current_shadow_vcpu;
-+	unsigned long gve;
++	unsigned long gva;
++	unsigned long hva;
 +	u64 prot;
 +
 +	if (shadow_vcpu->gve_info)
 +		return -EEXIST;
 +
-+	pkvm_pgtable_lookup(&shadow_vcpu->vept, addr, &gve, &prot, NULL);
-+	if (gve == INVALID_ADDR)
++	pkvm_pgtable_lookup(&shadow_vcpu->vept, addr, &gva, &prot, NULL);
++	if (gva == INVALID_ADDR)
 +		return -ENOENT;
 +
-+	shadow_vcpu->gve_info = (struct pkvm_ve_info *)gve;
++	hva = gfn_to_hva(vcpu->kvm, gva >> PAGE_SHIFT);
++	shadow_vcpu->gve_info = (struct pkvm_ve_info *) hva;
++
 +	return 0;
 +}
 +
@@ -20090,10 +20129,10 @@ index 000000000000..22d57eff24df
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pgtable.c b/arch/x86/kvm/vmx/pkvm/hyp/pgtable.c
 new file mode 100644
-index 000000000000..463b053d7894
+index 000000000000..b044aac43a59
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pgtable.c
-@@ -0,0 +1,801 @@
+@@ -0,0 +1,802 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -20500,8 +20539,9 @@ index 000000000000..463b053d7894
 +			data->vaddr & ~pgt_ops->pgt_level_page_mask(level);
 +
 +		data->phys = pgt_ops->pgt_entry_to_phys(&pte) + offset;
-+		data->prot = pgt_ops->pgt_entry_to_prot(&pte);
 +	}
++
++	data->prot = pgt_ops->pgt_entry_to_prot(&pte);
 +
 +	return PGTABLE_WALK_DONE;
 +}
@@ -29277,5 +29317,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.42.2
 

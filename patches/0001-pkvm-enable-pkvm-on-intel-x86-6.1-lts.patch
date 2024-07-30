@@ -1,4 +1,4 @@
-From fb1c9d374b8d779785d8431cf6c07ff6ee73aab4 Mon Sep 17 00:00:00 2001
+From 60e4fc06f6fa92ab2c907c822cd591e47375f29c Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -168,14 +168,14 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
- virt/kvm/kvm_main.c                           |   95 +-
+ virt/kvm/kvm_main.c                           |  105 +-
  virt/kvm/pkvm/buddy_memory.h                  |   36 +
  virt/kvm/pkvm/gfp.h                           |   35 +
  .../hyp/nvhe => virt/kvm/pkvm}/page_alloc.c   |  135 +-
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 25526 insertions(+), 830 deletions(-)
+ 165 files changed, 25536 insertions(+), 830 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -28922,7 +28922,7 @@ index 71b290b6469d..610618432f3f 100644
  #define PIN_BASED_NMI_EXITING			0x00000008
  #define PIN_BASED_VIRTUAL_NMIS			0x00000020
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 8123f4d15930..67c0d6dc6162 100644
+index 8123f4d15930..4cf421253674 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -55,6 +55,7 @@
@@ -29051,10 +29051,11 @@ index 8123f4d15930..67c0d6dc6162 100644
  	r = __copy_from_user(data, (void __user *)addr + offset, len);
  	if (r)
  		return -EFAULT;
-@@ -3011,6 +3054,15 @@ int kvm_read_guest_page(struct kvm *kvm, gfn_t gfn, void *data, int offset,
+@@ -3011,6 +3054,17 @@ int kvm_read_guest_page(struct kvm *kvm, gfn_t gfn, void *data, int offset,
  			int len)
  {
  	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +	struct kvm_vcpu *vcpu;
 +	int res;
 +
@@ -29064,13 +29065,15 @@ index 8123f4d15930..67c0d6dc6162 100644
 +		if (res != -ENOTSUPP)
 +			return res;
 +	}
++#endif
  
  	return __kvm_read_guest_page(slot, gfn, data, offset, len);
  }
-@@ -3020,7 +3072,13 @@ int kvm_vcpu_read_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn, void *data,
+@@ -3020,7 +3074,15 @@ int kvm_vcpu_read_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn, void *data,
  			     int offset, int len)
  {
  	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +	int res;
  
 +	if (in_hyp_mode()) {
@@ -29078,10 +29081,11 @@ index 8123f4d15930..67c0d6dc6162 100644
 +		if (res != -ENOTSUPP)
 +			return res;
 +	}
++#endif
  	return __kvm_read_guest_page(slot, gfn, data, offset, len);
  }
  EXPORT_SYMBOL_GPL(kvm_vcpu_read_guest_page);
-@@ -3103,6 +3161,7 @@ static int __kvm_write_guest_page(struct kvm *kvm,
+@@ -3103,6 +3165,7 @@ static int __kvm_write_guest_page(struct kvm *kvm,
  	addr = gfn_to_hva_memslot(memslot, gfn);
  	if (kvm_is_error_hva(addr))
  		return -EFAULT;
@@ -29089,11 +29093,12 @@ index 8123f4d15930..67c0d6dc6162 100644
  	r = __copy_to_user((void __user *)addr + offset, data, len);
  	if (r)
  		return -EFAULT;
-@@ -3114,7 +3173,15 @@ int kvm_write_guest_page(struct kvm *kvm, gfn_t gfn,
+@@ -3114,7 +3177,17 @@ int kvm_write_guest_page(struct kvm *kvm, gfn_t gfn,
  			 const void *data, int offset, int len)
  {
  	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 -
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +	struct kvm_vcpu *vcpu;
 +	int res;
 +
@@ -29103,24 +29108,28 @@ index 8123f4d15930..67c0d6dc6162 100644
 +		if (res != -ENOTSUPP)
 +			return res;
 +        }
++#endif
  	return __kvm_write_guest_page(kvm, slot, gfn, data, offset, len);
  }
  EXPORT_SYMBOL_GPL(kvm_write_guest_page);
-@@ -3123,7 +3190,13 @@ int kvm_vcpu_write_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn,
- 			      const void *data, int offset, int len)
+@@ -3124,6 +3197,16 @@ int kvm_vcpu_write_guest_page(struct kvm_vcpu *vcpu, gfn_t gfn,
  {
  	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-+	int res;
  
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
++	int res;
++
 +	if (in_hyp_mode()) {
 +		res = __hyp_vcpu_write_guest_page(vcpu, slot, gfn, data, offset, len);
 +		if (res != -ENOTSUPP)
 +			return res;
 +	}
++#endif
++
  	return __kvm_write_guest_page(vcpu->kvm, slot, gfn, data, offset, len);
  }
  EXPORT_SYMBOL_GPL(kvm_vcpu_write_guest_page);
-@@ -5908,7 +5981,7 @@ static void check_processor_compat(void *data)
+@@ -5908,7 +5991,7 @@ static void check_processor_compat(void *data)
  }
  
  int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
@@ -29129,7 +29138,7 @@ index 8123f4d15930..67c0d6dc6162 100644
  {
  	struct kvm_cpu_compat_check c;
  	int r;
-@@ -5946,6 +6019,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -5946,6 +6029,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  			goto out_free_2;
  	}
  
@@ -29725,5 +29734,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.44.1
 

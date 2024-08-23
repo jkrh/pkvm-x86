@@ -1,0 +1,27 @@
+From 170a95b549548b446ea86436def646d9243406af Mon Sep 17 00:00:00 2001
+From: Markku Ahvenjarvi <mankku@gmail.com>
+Date: Fri, 23 Aug 2024 12:29:19 +0300
+Subject: [PATCH] KVM: x86: ensure nested event processing on vmenter
+
+Fixes: 26844fee6ade ("KVM: x86: never write to memory from kvm_vcpu_check_block()")
+Signed-off-by: Markku Ahvenjarvi <mankku@gmail.com>
+---
+ arch/x86/kvm/x86.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 0763a0f72a06..a9c17467b2e4 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -10932,7 +10932,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
+ 	}
+ 
+ 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
+-	    kvm_xen_has_interrupt(vcpu)) {
++	    kvm_xen_has_interrupt(vcpu) || is_guest_mode(vcpu)) {
+ 		++vcpu->stat.req_event;
+ 		r = kvm_apic_accept_events(vcpu);
+ 		if (r < 0) {
+-- 
+2.44.1
+

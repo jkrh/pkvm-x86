@@ -3,7 +3,7 @@ KERNEL := $(KERNEL_DIR)/arch/x86_64/boot/bzImage
 VMLINUX := $(KERNEL_DIR)/vmlinux
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 
-KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=on rw csdlock_debug=1 noapic acpi=off
+KERNEL_OPTS := root=/dev/vda1 console=ttyS0 mem=8G swiotlb=force nokaslr ignore_loglevel intel_iommu=on rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MACHINE := -machine q35,mem-merge=off -device intel-iommu,aw-bits=48,device-iotlb=on
@@ -11,7 +11,7 @@ MEM := -m 8G
 #
 # Let's try to stay as close to the HW as possible
 #
-CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
+CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi,+x2apic,+hypervisor
 CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd

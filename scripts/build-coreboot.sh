@@ -29,7 +29,7 @@ cd $BASEDIR/coreboot
 if [ $TGT = "host" ]; then
 CONFIG_LINUX_COMMAND_LINE="root=/dev/vda1 swiotlb=force mem=8G nokaslr ignore_loglevel console=ttyS0 intel_iommu=sm_on rw"
 else
-CONFIG_LINUX_COMMAND_LINE="root=/dev/vda1 swiotlb=force mem=3G nokaslr ignore_loglevel console=uart[8250],io,0x3f8 rw acpi=off noapic"
+CONFIG_LINUX_COMMAND_LINE="root=/dev/vda1 swiotlb=force mem=3G nokaslr ignore_loglevel console=ttyS0 rw"
 fi
 make KBUILD_DEFCONFIG=$BASEDIR/scripts/q35_defconfig defconfig
 sed -i "/CONFIG_PAYLOAD_FILE=/c\CONFIG_PAYLOAD_FILE=$CONFIG_PAYLOAD_FILE" .config

@@ -1,4 +1,4 @@
-From 60e4fc06f6fa92ab2c907c822cd591e47375f29c Mon Sep 17 00:00:00 2001
+From 0eda6e40802864355f59d2e2470ff7c475f81cc6 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -46,7 +46,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/include/asm/kvm-x86-ops.h            |    2 +
  arch/x86/include/asm/kvm_host.h               |   18 +
  arch/x86/include/asm/kvm_para.h               |   16 +
- arch/x86/include/asm/kvm_pkvm.h               |  270 ++
+ arch/x86/include/asm/kvm_pkvm.h               |  277 ++
  arch/x86/include/asm/pkvm.h                   |  160 +
  arch/x86/include/asm/pkvm_image.h             |   48 +
  arch/x86/include/asm/pkvm_image_vars.h        |   23 +
@@ -70,7 +70,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/emulate.c                        |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
  arch/x86/kvm/mmu/mmu.c                        |   53 +-
- arch/x86/kvm/mmu/paging_tmpl.h                |    3 +-
+ arch/x86/kvm/mmu/paging_tmpl.h                |   19 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
  arch/x86/kvm/mmu/tdp_mmu.c                    |   22 +-
  arch/x86/kvm/svm/svm.c                        |    8 +-
@@ -108,7 +108,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1798 +++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1836 +++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -145,7 +145,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  254 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |  102 +-
+ arch/x86/kvm/x86.c                            |  106 +-
  arch/x86/kvm/x86.h                            |    4 +
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/mem_encrypt_identity.c            |    1 +
@@ -175,7 +175,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 25536 insertions(+), 830 deletions(-)
+ 165 files changed, 25599 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -8479,10 +8479,10 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..57e0d7e0b620
+index 000000000000..dc12dcece258
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,277 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -8739,13 +8739,20 @@ index 000000000000..57e0d7e0b620
 +			  void *data, int offset, int len);
 +int __hyp_vcpu_write_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 +				gfn_t gfn, const void *data, int offset, int len);
++static __maybe_unused int __get_user_hyp32(struct kvm_vcpu *vcpu, u32 *ret, u32 *addr)
++	{ return -ENOTSUPP; }
++int __get_user_hyp64(struct kvm_vcpu *vcpu, u64 *ret, u64 *addr);
 +#else
 +static __maybe_unused unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +	{ return ~0; };
 +static __maybe_unused unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +	{ return ~0; };
++static __maybe_unused int __get_user_hyp32(struct kvm_vcpu *vcpu, u32 *ret, u32 *addr)
++	{ return -ENOTSUPP; }
++static __maybe_unused int __get_user_hyp64(struct kvm_vcpu *vcpu, u64 *ret, u64 *addr);
++	{ return -ENOTSUPP; }
 +static __maybe_unused int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
-+	gfn_t gfn, void *data, int offset, int len)
++						gfn_t gfn, void *data, int offset, int len)
 +	{ return -ENOTSUPP; }
 +static __maybe_unused int __hyp_vcpu_write_guest_page(struct kvm_vcpu *vcpu,
 +						      struct kvm_memory_slot *slot, gfn_t gfn,
@@ -9755,10 +9762,61 @@ index d30325e297a0..f8f900fbe635 100644
  			else
  				need_tlb_flush = 1;
 diff --git a/arch/x86/kvm/mmu/paging_tmpl.h b/arch/x86/kvm/mmu/paging_tmpl.h
-index 1f4f5e703f13..ff34fe5e915d 100644
+index 1f4f5e703f13..c4a78931c3ab 100644
 --- a/arch/x86/kvm/mmu/paging_tmpl.h
 +++ b/arch/x86/kvm/mmu/paging_tmpl.h
-@@ -938,7 +938,8 @@ static void FNAME(invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa)
+@@ -21,6 +21,8 @@
+  * once per guest PTE type.  The per-type defines are #undef'd at the end.
+  */
+ 
++#include <asm/kvm_pkvm.h>
++
+ #if PTTYPE == 64
+ 	#define pt_element_t u64
+ 	#define guest_walker guest_walker64
+@@ -34,6 +36,7 @@
+ 	#else
+ 	#define PT_MAX_FULL_LEVELS 2
+ 	#endif
++	#define __get_user_hyp __get_user_hyp64
+ #elif PTTYPE == 32
+ 	#define pt_element_t u32
+ 	#define guest_walker guest_walker32
+@@ -43,6 +46,8 @@
+ 	#define PT_GUEST_DIRTY_SHIFT PT_DIRTY_SHIFT
+ 	#define PT_GUEST_ACCESSED_SHIFT PT_ACCESSED_SHIFT
+ 	#define PT_HAVE_ACCESSED_DIRTY(mmu) true
++	#undef __get_user_hyp
++	#define __get_user_hyp __get_user_hyp32
+ 
+ 	#define PT32_DIR_PSE36_SIZE 4
+ 	#define PT32_DIR_PSE36_SHIFT 13
+@@ -57,6 +62,7 @@
+ 	#define PT_GUEST_ACCESSED_SHIFT 8
+ 	#define PT_HAVE_ACCESSED_DIRTY(mmu) (!(mmu)->cpu_role.base.ad_disabled)
+ 	#define PT_MAX_FULL_LEVELS PT64_ROOT_MAX_LEVEL
++	#define __get_user_hyp __get_user_hyp64
+ #else
+ 	#error Invalid PTTYPE value
+ #endif
+@@ -387,8 +393,14 @@ static int FNAME(walk_addr_generic)(struct guest_walker *walker,
+ 			goto error;
+ 
+ 		ptep_user = (pt_element_t __user *)((void *)host_addr + offset);
+-		if (unlikely(__get_user(pte, ptep_user)))
+-			goto error;
++		if (!in_hyp_mode()) {
++			if (unlikely(__get_user(pte, ptep_user)))
++				goto error;
++		} else {
++			/* FIXME: this can fault and schedule */
++			if (unlikely(__get_user_hyp(vcpu, &pte, ptep_user)))
++				goto error;
++		}
+ 		walker->ptep_user[walker->level - 1] = ptep_user;
+ 
+ 		trace_kvm_mmu_paging_element(pte, walker->level);
+@@ -938,7 +950,8 @@ static void FNAME(invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa)
  			mmu_page_zap_pte(vcpu->kvm, sp, sptep, NULL);
  			if (is_shadow_present_pte(old_spte))
  				kvm_flush_remote_tlbs_with_address(vcpu->kvm,
@@ -18093,10 +18151,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..398ef0f12261
+index 000000000000..7c20e87e3cef
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1798 @@
+@@ -0,0 +1,1836 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -19012,39 +19070,76 @@ index 000000000000..398ef0f12261
 +unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +{
 +	struct shadow_vcpu_state *shadow_vcpu;
++	unsigned long addr;
++	u64 offset = 0;
 +
-+	if (vaddr % PAGE_SIZE)
-+		return ~0;
++	if (vaddr % PAGE_SIZE) {
++		offset = vaddr & (PAGE_SIZE - 1);
++		vaddr = vaddr & ~(PAGE_SIZE - 1);
++	}
 +
 +	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
 +	if (!shadow_vcpu)
 +		BUG();
 +
-+	return virt_to_phys_user(shadow_vcpu->mm, vaddr);
++	addr = virt_to_phys_user(shadow_vcpu->mm, vaddr);
++	if (addr == ~0)
++		return addr;
++	return addr + offset;
++}
++
++static void __maybe_unused hexdump(const unsigned char *token,
++				   const unsigned char *buf, unsigned short len)
++{
++	printk(KERN_CONT "%s", token);
++	for (int i=0; i < len; i++) {
++		printk(KERN_CONT "%02hhx:", buf[i]);
++	}
++}
++
++int __get_user_hyp64(struct kvm_vcpu *vcpu, u64 *ret, u64 *vaddr)
++{
++	u64 addr = (u64)vaddr;
++	int r;
++
++	addr = (unsigned long)pkvm_user_to_phys(vcpu, addr);
++	if (addr == ~0)
++		return -ENOENT;
++	addr = (unsigned long)pkvm_phys_to_virt(addr);
++	if (addr == ~0)
++		return -ENOENT;
++	r = __copy_from_user(ret, (void __user *)addr, sizeof(u64));
++	if (r)
++		return -EFAULT;
++	return 0;
 +}
 +
 +int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 +			  gfn_t gfn, void *data, int offset, int len)
 +{
 +	unsigned long addr;
++	char __maybe_unused num[32];
 +	int r;
 +
 +	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
 +	if (kvm_is_error_hva(addr))
 +		return -EFAULT;
 +	addr = (unsigned long)pkvm_user_to_phys(vcpu, addr);
-+	if (addr == ~0) {
-+		pkvm_err("__hyp_read_guest_page(): gfn 0x%llx\n", gfn);
++	if (addr == ~0)
 +		return -ENOENT;
-+	}
 +	addr = (unsigned long)pkvm_phys_to_virt(addr);
 +	if (addr == ~0)
 +		return -ENOENT;
 +
-+        r = __copy_from_user(data, (void __user *)addr + offset, len);
-+        if (r)
-+                return -EFAULT;
-+        return 0;
++	r = __copy_from_user(data, (void __user *)addr + offset, len);
++	if (r)
++		return -EFAULT;
++
++#ifdef DUMP_EMU_DATA
++	sprintf(num, "0x%llx ", (gfn << PAGE_SHIFT) + offset);
++	hexdump(num, data, len);
++#endif
++	return 0;
 +}
 +
 +int __hyp_vcpu_write_guest_page(struct kvm_vcpu *vcpu,
@@ -19820,6 +19915,7 @@ index 000000000000..398ef0f12261
 +		}
 +		break;
 +	default:
++		/* kvm_info("pkvm exit reason 0x%x\n", vmx->exit_reason.full); */
 +		break;
 +	}
 +
@@ -26764,7 +26860,7 @@ index ec268df83ed6..6ca9ef128033 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 7144e5166813..e339b6bab653 100644
+index 7144e5166813..9cb1d7f57908 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -26789,21 +26885,23 @@ index 7144e5166813..e339b6bab653 100644
  	default:
  		break;
  	}
-@@ -8856,6 +8864,21 @@ EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
+@@ -8856,6 +8864,23 @@ EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
  
  int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
  			    int emulation_type, void *insn, int insn_len)
 +{
++	int ret;
 +#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
-+	return kvm_hypercall5(PKVM_HC_EMULATE_INSN, (unsigned long)vcpu,
-+				(unsigned long)cr2_or_gpa,
-+				(unsigned long)emulation_type,
-+				(unsigned long)insn,
-+				(unsigned long)insn_len);
++	ret = kvm_hypercall5(PKVM_HC_EMULATE_INSN, (unsigned long)vcpu,
++			    (unsigned long)cr2_or_gpa,
++			    (unsigned long)emulation_type,
++			    (unsigned long)insn,
++			    (unsigned long)insn_len);
 +#else
-+	return __x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type,
-+					 insn, insn_len);
++	ret = __x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type,
++					insn, insn_len);
 +#endif
++	return ret;
 +}
 +
 +int __x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
@@ -26811,7 +26909,7 @@ index 7144e5166813..e339b6bab653 100644
  {
  	int r;
  	struct x86_emulate_ctxt *ctxt = vcpu->arch.emulate_ctxt;
-@@ -9704,11 +9727,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9704,11 +9729,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -26865,7 +26963,7 @@ index 7144e5166813..e339b6bab653 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -9946,8 +10011,20 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
+@@ -9946,8 +10013,22 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
   * ordering between that side effect, the instruction completing, _and_ the
   * delivery of the asynchronous event.
   */
@@ -26874,13 +26972,15 @@ index 7144e5166813..e339b6bab653 100644
 +int kvm_check_and_inject_events(struct kvm_vcpu *vcpu,
 +                                bool *req_immediate_exit)
 +{
++	int ret;
 +#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
-+	return kvm_hypercall2(PKVM_HC_INJECT_EVENTS,
-+				(unsigned long)vcpu,
-+				(unsigned long)req_immediate_exit);
++	ret = kvm_hypercall2(PKVM_HC_INJECT_EVENTS,
++			    (unsigned long)vcpu,
++			    (unsigned long)req_immediate_exit);
 +#else
-+	return __kvm_check_and_inject_events(vcpu, req_immediate_exit);
++	ret = __kvm_check_and_inject_events(vcpu, req_immediate_exit);
 +#endif
++	return ret;
 +}
 +
 +int __kvm_check_and_inject_events(struct kvm_vcpu *vcpu,
@@ -26888,7 +26988,7 @@ index 7144e5166813..e339b6bab653 100644
  {
  	bool can_inject;
  	int r;
-@@ -12448,9 +12525,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12448,9 +12529,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -26904,7 +27004,7 @@ index 7144e5166813..e339b6bab653 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12643,6 +12725,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12643,6 +12729,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -26912,7 +27012,7 @@ index 7144e5166813..e339b6bab653 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12777,10 +12860,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12777,10 +12864,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {
@@ -29734,5 +29834,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.44.1
+2.34.1
 

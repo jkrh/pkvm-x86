@@ -1,4 +1,4 @@
-From 0eda6e40802864355f59d2e2470ff7c475f81cc6 Mon Sep 17 00:00:00 2001
+From 642bb69f450e8304f54423dfb092d7ab97acbddc Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -9,6 +9,7 @@ Content-Transfer-Encoding: 8bit
 Signed-off-by: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Signed-off-by: Janne Karhunen <janne.karhunen@gmail.com>
 Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  arch/Kconfig                                  |    6 +-
  arch/arm64/include/asm/kvm_host.h             |    8 +-
@@ -82,7 +83,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1105 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1102 +++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  487 +++
@@ -175,7 +176,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 25599 insertions(+), 832 deletions(-)
+ 165 files changed, 25596 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -10282,10 +10283,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..1722cfe767cd
+index 000000000000..5af6de0876e2
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1105 @@
+@@ -0,0 +1,1102 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -10655,25 +10656,15 @@ index 000000000000..1722cfe767cd
 +	struct mem_range range, cur;
 +	bool is_memory = find_mem_range(gpa, &range);
 +	u64 prot = pkvm_mkstate(HOST_EPT_DEF_MMIO_PROT, PKVM_PAGE_OWNED);
-+	int level, ret, ud = 0x0FB9;
++	int level, ret, off, ud = 0x0FB9;
 +
 +	*skip_instruction = true;
 +
-+	if (is_memory) {
-+		hva = gfn_to_hva(vcpu->kvm, gpa >> PAGE_SHIFT);
-+		pkvm_err("%s: host memory access violation for 0x%lx/0x%lx at 0x%lx\n",
-+			 __func__, hva, gpa, eip);
-+		eip += 4;
-+		memcpy((void *)eip, &ud, 4);
-+		return -EPERM;
-+	}
-+
-+	ret = try_emul_host_mmio(vcpu, gpa);
-+	if (ret != -EINVAL) {
-+		return ret;
-+	}
-+
 +	pkvm_spin_lock(&_host_ept_lock);
++	if (is_memory) {
++		ret = -EPERM;
++		goto out;
++	}
 +
 +	pkvm_pgtable_lookup(&host_ept, gpa, &hpa, NULL, &level);
 +	if (hpa != INVALID_ADDR) {
@@ -10687,34 +10678,41 @@ index 000000000000..1722cfe767cd
 +		cur.start = ALIGN_DOWN(gpa, size);
 +		cur.end = cur.start + size - 1;
 +		/*
-+		 * TODO:
-+		 * check if this MMIO belongs to a secure VM pass-through device.
++		 * FIXME:
 +		 */
-+		if ((1 << level & host_ept.allowed_pgsz) &&
-+				mem_range_included(&cur, &range) &&
-+				!is_mem_range_overlap_iommu(cur.start, cur.end))
++		if (((1 << level) & host_ept.allowed_pgsz) &&
++		    mem_range_included(&cur, &range) &&
++		    !is_mem_range_overlap_iommu(cur.start, cur.end))
 +			break;
 +		level--;
 +	} while (level != PG_LEVEL_NONE);
 +
++	pkvm_dbg("pkvm: %s: gpa 0x%lx, 0x%lx ~ 0x%lx size 0x%lx level %d\n",
++		 __func__, gpa, cur.start, cur.end, cur.end - cur.start + 1,
++		 level);
++
 +	if (level == PG_LEVEL_NONE) {
-+		pkvm_err("pkvm: No valid range: gpa 0x%lx, cur 0x%lx ~ 0x%lx size 0x%lx level %d\n",
-+			 gpa, cur.start, cur.end, cur.end - cur.start + 1, level);
++		pkvm_err("pkvm: gpa 0x%lx overlaps iommu regions\n", gpa);
 +		ret = -EPERM;
 +		goto out;
 +	}
-+
-+	pkvm_dbg("pkvm: %s: cur MMIO range 0x%lx ~ 0x%lx size 0x%lx level %d\n",
-+		__func__, cur.start, cur.end, cur.end - cur.start + 1, level);
 +
 +	ret = pkvm_host_ept_map(cur.start, cur.start, cur.end - cur.start + 1,
 +			   1 << level, prot);
 +	if (ret == -ENOMEM) {
 +		/* TODO: reclaim MMIO range pages first and try do map again */
-+		pkvm_dbg("%s: no memory to set host ept for addr 0x%lx\n",
-+			 __func__, gpa);
++		pkvm_dbg("pkvm: no memory to set host ept for addr 0x%lx\n", gpa);
 +	}
 +out:
++	if (ret == -EPERM) {
++		off = gpa & (PAGE_SIZE - 1);
++		hva = gfn_to_hva(vcpu->kvm, gpa >> PAGE_SHIFT);
++		hva += off;
++		pkvm_err("%s: host memory access violation for 0x%lx/0x%lx at 0x%lx\n",
++			 __func__, hva, gpa, eip);
++		/* Generate a backtrace via the UD injection */
++		memcpy((void *)eip+4, &ud, 4);
++        }
 +	pkvm_spin_unlock(&_host_ept_lock);
 +
 +	if (ret == 0)

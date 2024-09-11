@@ -1,4 +1,4 @@
-From a4cd5d2d24fac0667c993057aee7093fc36892cd Mon Sep 17 00:00:00 2001
+From 437ed3c1fd5fd2fbb0963439064894730c5bc945 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -47,7 +47,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/include/asm/kvm-x86-ops.h            |    2 +
  arch/x86/include/asm/kvm_host.h               |   18 +
  arch/x86/include/asm/kvm_para.h               |   16 +
- arch/x86/include/asm/kvm_pkvm.h               |  283 ++
+ arch/x86/include/asm/kvm_pkvm.h               |  286 ++
  arch/x86/include/asm/pkvm.h                   |  160 +
  arch/x86/include/asm/pkvm_image.h             |   48 +
  arch/x86/include/asm/pkvm_image_vars.h        |   23 +
@@ -83,7 +83,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1144 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1147 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -109,7 +109,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1891 +++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1926 +++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -176,7 +176,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 24221 insertions(+), 832 deletions(-)
+ 165 files changed, 24262 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -7012,10 +7012,10 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..6d67b4e8cf18
+index 000000000000..48ca1db9405b
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,286 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -7268,6 +7268,7 @@ index 000000000000..6d67b4e8cf18
 +bool in_hyp_mode(void);
 +unsigned long read_cr3(void);
 +unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr);
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa);
 +unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot, gfn_t gfn,
@@ -7281,6 +7282,8 @@ index 000000000000..6d67b4e8cf18
 +static bool in_hyp_mode(void) { return false; }
 +static unsigned long read_cr3(void) { return ~0; }
 +static unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
++	{ return ~0; }
++static unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
 +	{ return ~0; }
 +static __maybe_unused unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +	{ return ~0; }
@@ -8821,10 +8824,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..a551cf476ebf
+index 000000000000..c3f3adb59579
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1144 @@
+@@ -0,0 +1,1147 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -9198,35 +9201,38 @@ index 000000000000..a551cf476ebf
 +
 +void handle_permission_violation(struct kvm_vcpu *vcpu)
 +{
-+	unsigned long hva = vmcs_readl(GUEST_LINEAR_ADDRESS);
++	unsigned long gla = vmcs_readl(GUEST_LINEAR_ADDRESS);
 +	unsigned long gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
 +	unsigned long eip = vmcs_readl(GUEST_RIP);
 +	unsigned long cr3 = vmcs_readl(GUEST_CR3);
-+	unsigned long eipp, hma;
++	unsigned long eptp = vmcs_read64(EPT_POINTER);
++	unsigned long eipp, tmp;
 +	int ud = 0x0f0b;
 +	char num[8];
 +
-+	/* Resolve the linear to phys based on the context */
-+	eipp = guest_virt_to_phys(vcpu, cr3, eip);
-+	if (eipp == ~0) {
-+		pkvm_err("%s: unable to translate guest rip\n",
-+			 __func__);
-+		goto dump_error;
++	/* Translate it from the shadow to report it */
++	tmp = guest_ept_lookup(vcpu, eptp, gpa);
++	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
++		if (tmp == ~0)
++			pkvm_err("%s: 0x%lx is no longer in the host\n", __func__,
++				 gpa);
++	} else {
++		if (tmp == ~0)
++			pkvm_err("%s: 0x%lx is no longer in the guest\n", __func__,
++				 gpa);
 +	}
-+	/* Make it a linear mapping address */
++
++	/* Make a linear mapping address of the IP for the hyp use */
++	eipp = guest_virt_to_phys(vcpu, cr3, eip);
++	if (vcpu->kvm->pkvm.shadow_vm_handle != PKVM_HOST_HANDLE)
++		eipp = guest_ept_lookup(vcpu, eptp, eipp);
 +	eip = (unsigned long)pkvm_phys_to_virt(eipp);
 +
-+dump_error:
 +	pkvm_err("%s: memory access violation by vm 0x%x for 0x%lx/0x%lx at 0x%lx/0x%lx\n",
-+		 __func__, vcpu->kvm->pkvm.shadow_vm_handle, hva, gpa, eip, eipp);
++		 __func__, vcpu->kvm->pkvm.shadow_vm_handle, gla, gpa, eip, eipp);
 +
-+	if (eip == ~0)
++	if ((eip == ~0) || (eipp == ~0))
 +		return;
-+
-+	/* Double check the linear mapping existence for us */
-+	hma = guest_virt_to_phys(vcpu, read_cr3(), eip);
-+	if (hma == ~0)
-+		BUG();
 +
 +	sprintf(num, "0x%lx ", eipp);
 +
@@ -16716,10 +16722,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..eada14e9e216
+index 000000000000..816a9befa3f0
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1891 @@
+@@ -0,0 +1,1926 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -17592,6 +17598,11 @@ index 000000000000..eada14e9e216
 +#define PAGE_SIZE_2MB_MASK	0x1FFFFF
 +#define PAGE_SIZE_1GB_MASK	0x3FFFFFFF
 +
++#define EPT_ENTRY_READ_MASK	(1ULL << 0)
++#define EPT_ENTRY_WRITE_MASK	(1ULL << 1)
++#define EPT_ENTRY_EXECUTE_MASK	(1ULL << 2)
++#define EPT_ENTRY_LARGE_PAGE_MASK (1ULL << 7)
++
 +#include <linux/types.h>
 +#include <asm/pgtable_types.h>
 +
@@ -17656,6 +17667,36 @@ index 000000000000..eada14e9e216
 +	return (pte & PAGE_PFN_MASK) + (virt_addr & 0xFFF);
 +}
 +
++__attribute__((optimize(0)))
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
++{
++	u64 pml4i = (gpa >> 39) & 0x1FF;
++	u64 pdpti = (gpa >> 30) & 0x1FF;
++	u64 pdi   = (gpa >> 21) & 0x1FF;
++	u64 pti   = (gpa >> 12) & 0x1FF;
++	u64 pml4e, pdpte, pde, pte;
++
++	pml4e = read_guest_phys(vcpu, (eptp & PAGE_PFN_MASK) + pml4i * sizeof(u64));
++	if ((pml4e == ~0) || !(pml4e & EPT_ENTRY_READ_MASK))
++		return ~0;
++	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
++	if ((pdpte == ~0) || !(pdpte & EPT_ENTRY_READ_MASK))
++		return ~0;
++	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK)
++		return (pdpte & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_1GB_MASK);
++	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
++	if ((pde == ~0) || !(pde & EPT_ENTRY_READ_MASK))
++		return ~0;
++	if (pde & EPT_ENTRY_LARGE_PAGE_MASK)
++		return (pde & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_2MB_MASK);
++	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
++	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
++		return ~0;
++
++	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
++}
++
++/* Original pkvm walk */
 +unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +{
 +	struct shadow_vcpu_state *shadow_vcpu;

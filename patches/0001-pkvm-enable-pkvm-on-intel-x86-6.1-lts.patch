@@ -1,4 +1,4 @@
-From 437ed3c1fd5fd2fbb0963439064894730c5bc945 Mon Sep 17 00:00:00 2001
+From 3bb97e600082287eec10e8dfe557fafb24abc7cf Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -83,8 +83,8 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1147 ++++++
- arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   71 +
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1177 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   75 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
@@ -109,7 +109,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1926 +++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1937 +++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -123,7 +123,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  469 +++
+ arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  468 +++
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.h            |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  146 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
@@ -176,7 +176,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 24262 insertions(+), 832 deletions(-)
+ 165 files changed, 24306 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -8824,10 +8824,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..c3f3adb59579
+index 000000000000..7f0174bd857b
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1147 @@
+@@ -0,0 +1,1177 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -9199,6 +9199,18 @@ index 000000000000..c3f3adb59579
 +	}
 +}
 +
++static void inject_guest_gpf(void)
++{
++	u32 intr_info = 0x80000B0DUL;
++	u32 errc = 0x1UL;
++	u32 ilen = vmcs_read32(VM_EXIT_INSTRUCTION_LEN);
++
++	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr_info);
++	vmcs_write32(VM_ENTRY_EXCEPTION_ERROR_CODE, (u16)errc);
++	vmcs_write32(VM_ENTRY_INSTRUCTION_LEN, ilen);
++	barrier();
++}
++
 +void handle_permission_violation(struct kvm_vcpu *vcpu)
 +{
 +	unsigned long gla = vmcs_readl(GUEST_LINEAR_ADDRESS);
@@ -9207,7 +9219,6 @@ index 000000000000..c3f3adb59579
 +	unsigned long cr3 = vmcs_readl(GUEST_CR3);
 +	unsigned long eptp = vmcs_read64(EPT_POINTER);
 +	unsigned long eipp, tmp;
-+	int ud = 0x0f0b;
 +	char num[8];
 +
 +	/* Translate it from the shadow to report it */
@@ -9238,9 +9249,9 @@ index 000000000000..c3f3adb59579
 +
 +	/* Show failing instructions */
 +	hexdump(num, (char *)eip, 32);
-+	/* Inject UD to get a backtrace */
-+	memcpy((void *)eip, &ud, 2);
-+	barrier();
++
++	/* Inject a general protection fault */
++	inject_guest_gpf();
 +}
 +
 +int handle_host_ept_violation(struct kvm_vcpu *vcpu, bool *skip_instruction)
@@ -9254,17 +9265,28 @@ index 000000000000..c3f3adb59579
 +	*skip_instruction = true;
 +
 +	pkvm_spin_lock(&_host_ept_lock);
++
++	/*
++	 * Memory access violations -> -eperm immediately
++	 */
 +	if (is_memory) {
 +		ret = -EPERM;
 +		goto out;
 +	}
 +
++	/*
++	 * Double fault handling
++	 */
 +	pkvm_pgtable_lookup(&host_ept, gpa, &hpa, NULL, &level);
 +	if (hpa != INVALID_ADDR) {
 +		ret = -EAGAIN;
 +		goto out;
 +	}
 +
++	/*
++	 * Before mapping the device in the host, make sure it
++	 * doesn't overlap iommu or ram. If it does, -eperm it.
++	 */
 +	do {
 +		unsigned long size = ept_level_to_size(level);
 +
@@ -9272,6 +9294,8 @@ index 000000000000..c3f3adb59579
 +		cur.end = cur.start + size - 1;
 +		/*
 +		 * FIXME:
++		 * check if this MMIO belongs to pkvm owned devices (e.g. IOMMU)
++		 * check if this MMIO belongs to a secure VM pass-through device.
 +		 */
 +		if (((1 << level) & host_ept.allowed_pgsz) &&
 +		    mem_range_included(&cur, &range) &&
@@ -9285,14 +9309,19 @@ index 000000000000..c3f3adb59579
 +		 level);
 +
 +	if (level == PG_LEVEL_NONE) {
-+		pkvm_err("%s: gpa 0x%lx overlaps iommu regions\n", __func__, gpa);
++		pkvm_err("%s: mmio gpa 0x%lx overlaps non mmio regions\n",
++			 __func__, gpa);
 +		ret = -EPERM;
 +		goto out;
 +	}
 +
++	/*
++	 * Glue it in the host as mmio
++	 */
 +	ret = pkvm_host_ept_map(cur.start, cur.start, cur.end - cur.start + 1,
-+			   1 << level, prot);
-+	pkvm_dbg("%s: gpa %lx return %d\n", __func__, gpa, ret);
++				1 << level, prot);
++	pkvm_dbg("%s: host mapping of device gpa %lx returns %d\n", __func__,
++		 gpa, ret);
 +
 +out:
 +	if (ret == 0)
@@ -9971,16 +10000,17 @@ index 000000000000..c3f3adb59579
 +
 +	/*
 +	 * Set the mmio_pte with prot 0, which means it is invalid and with
-+	 * "Suppress #VE" bit cleared. Accessing this pte will trigger #VE.
++	 * "Suppress #VE" bit cleared. Accessing this pte will trigger #VE
++	 * unless vmxroot mmio is enabled in the kernel config.
 +	 */
 +	pkvm_pgtable_annotate(sept, gpa, PAGE_SIZE, SHADOW_EPT_MMIO_ENTRY);
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.h b/arch/x86/kvm/vmx/pkvm/hyp/ept.h
 new file mode 100644
-index 000000000000..b3a08bca677c
+index 000000000000..71bac40b8e9d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,75 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -9997,7 +10027,11 @@ index 000000000000..b3a08bca677c
 +#define EPT_PROT_MASK		(VMX_EPT_RWX_MASK | VMX_EPT_MT_MASK | VMX_EPT_IPAT_BIT)
 +#define EPT_PROT_DEF		SUPPRESS_VE
 +
++#ifndef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +#define SHADOW_EPT_MMIO_ENTRY	0
++#else
++#define SHADOW_EPT_MMIO_ENTRY	SUPPRESS_VE
++#endif
 +
 +enum sept_handle_ret {
 +	PKVM_NOT_HANDLED,
@@ -16722,10 +16756,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..816a9befa3f0
+index 000000000000..cb39a2487c77
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1926 @@
+@@ -0,0 +1,1937 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -17602,6 +17636,8 @@ index 000000000000..816a9befa3f0
 +#define EPT_ENTRY_WRITE_MASK	(1ULL << 1)
 +#define EPT_ENTRY_EXECUTE_MASK	(1ULL << 2)
 +#define EPT_ENTRY_LARGE_PAGE_MASK (1ULL << 7)
++#define EPTP_PHYS_ADDR_WIDTH_MASK  0x7ULL
++#define EPTP_PHYS_ADDR_WIDTH_48BIT 0x6ULL
 +
 +#include <linux/types.h>
 +#include <asm/pgtable_types.h>
@@ -17647,6 +17683,11 @@ index 000000000000..816a9befa3f0
 +	u64 pti   = (virt_addr >> 12) & 0x1FF;
 +	u64 pml4e, pdpte, pde, pte;
 +
++	/*
++	 * We support only 64bit, so on this interesting architecture it implies
++	 * 4 level walks with 48 bit address space.
++	 */
++
 +	pml4e = read_guest_phys(vcpu, (cr3 & PAGE_PFN_MASK) + pml4i * sizeof(u64));
 +	if ((pml4e == ~0) || !(pml4e & PAGE_PRESENT_MASK))
 +		return ~0;
@@ -17674,7 +17715,11 @@ index 000000000000..816a9befa3f0
 +	u64 pdpti = (gpa >> 30) & 0x1FF;
 +	u64 pdi   = (gpa >> 21) & 0x1FF;
 +	u64 pti   = (gpa >> 12) & 0x1FF;
-+	u64 pml4e, pdpte, pde, pte;
++	u64 pml4e, pdpte, pde, pte, paw;
++
++	paw = eptp & EPTP_PHYS_ADDR_WIDTH_MASK;
++	if (paw != EPTP_PHYS_ADDR_WIDTH_48BIT)
++		BUG();
 +
 +	pml4e = read_guest_phys(vcpu, (eptp & PAGE_PFN_MASK) + pml4i * sizeof(u64));
 +	if ((pml4e == ~0) || !(pml4e & EPT_ENTRY_READ_MASK))
@@ -21369,10 +21414,10 @@ index 000000000000..970d2e770844
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
 new file mode 100644
-index 000000000000..519d63d026e9
+index 000000000000..7e5e51be422e
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
-@@ -0,0 +1,469 @@
+@@ -0,0 +1,468 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -21690,9 +21735,8 @@ index 000000000000..519d63d026e9
 +		}
 +
 +		if (__pkvm_vmx_vcpu_run(vcpu->arch.regs, launch)) {
-+			pkvm_err("%s: CPU%d run_vcpu failed with error 0x%x\n",
++			panic("%s: CPU%d run_vcpu failed with error 0x%x\n",
 +				__func__, vcpu->cpu, vmcs_read32(VM_INSTRUCTION_ERROR));
-+			return -EINVAL;
 +		}
 +
 +		/* sync to kvm */

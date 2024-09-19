@@ -1,4 +1,4 @@
-From 3bb97e600082287eec10e8dfe557fafb24abc7cf Mon Sep 17 00:00:00 2001
+From 2a72068c3d666a2690a406bf460eade84a2f2495 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -30,7 +30,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/arm64/kvm/hyp/nvhe/setup.c               |   28 +-
  arch/arm64/kvm/pkvm.c                         |   87 +-
  arch/arm64/mm/init.c                          |    2 +-
- arch/x86/Kconfig                              |   19 +
+ arch/x86/Kconfig                              |   11 +
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
  arch/x86/coco/pkvm/Makefile                   |    3 +
@@ -38,7 +38,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/coco/pkvm/pkvmcall.S                 |   42 +
  arch/x86/coco/tdx/tdx.c                       |  115 +-
  arch/x86/coco/virt_exception.c                |  126 +
- arch/x86/configs/nixos_defconfig              | 3529 +++++++++++++++++
+ arch/x86/configs/nixos_defconfig              | 3517 +++++++++++++++++
  arch/x86/configs/nixos_guest_defconfig        | 1495 +++++++
  arch/x86/configs/x86_64_defconfig             |    1 +
  arch/x86/include/asm/coco.h                   |    1 +
@@ -47,7 +47,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/include/asm/kvm-x86-ops.h            |    2 +
  arch/x86/include/asm/kvm_host.h               |   18 +
  arch/x86/include/asm/kvm_para.h               |   16 +
- arch/x86/include/asm/kvm_pkvm.h               |  286 ++
+ arch/x86/include/asm/kvm_pkvm.h               |  289 ++
  arch/x86/include/asm/pkvm.h                   |  160 +
  arch/x86/include/asm/pkvm_image.h             |   48 +
  arch/x86/include/asm/pkvm_image_vars.h        |   23 +
@@ -66,7 +66,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kernel/setup.c                       |    7 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
- arch/x86/kvm/Kconfig                          |   42 +
+ arch/x86/kvm/Kconfig                          |   57 +
  arch/x86/kvm/Makefile                         |    2 +
  arch/x86/kvm/emulate.c                        |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
@@ -83,7 +83,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1177 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1181 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   75 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  472 +++
@@ -109,7 +109,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1937 +++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1989 ++++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -176,7 +176,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 24306 insertions(+), 832 deletions(-)
+ 165 files changed, 24360 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -1250,10 +1250,10 @@ index 4b4651ee47f2..f939487b24b4 100644
  	/*
  	 * sparse_init() tries to allocate memory from memblock, so must be
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
-index 4c9bfc4be58d..6eb0a6ec22ec 100644
+index 4c9bfc4be58d..f430abaad5aa 100644
 --- a/arch/x86/Kconfig
 +++ b/arch/x86/Kconfig
-@@ -896,6 +896,25 @@ config INTEL_TDX_GUEST
+@@ -896,6 +896,17 @@ config INTEL_TDX_GUEST
  	  memory contents and CPU state. TDX guests are protected from
  	  some attacks from the VMM.
  
@@ -1267,14 +1267,6 @@ index 4c9bfc4be58d..6eb0a6ec22ec 100644
 +	  Support running as a protected guest under Protected KVM.
 +	  Without this support, the guest kernel can not boot or run
 +	  under Protected KVM.
-+
-+config PKVM_EMULATED_VE
-+	bool "PKVM Emulate #VE"
-+	depends on PKVM_INTEL || PKVM_GUEST
-+	default n
-+	help
-+	  Emulate virtualized exceptions from PKVM on CPUs that do
-+	  not support the hardware feature.
 +
  endif # HYPERVISOR_GUEST
  
@@ -1823,10 +1815,10 @@ index 000000000000..15db92c24787
 +}
 diff --git a/arch/x86/configs/nixos_defconfig b/arch/x86/configs/nixos_defconfig
 new file mode 100644
-index 000000000000..49c11973804b
+index 000000000000..bd669167e6c0
 --- /dev/null
 +++ b/arch/x86/configs/nixos_defconfig
-@@ -0,0 +1,3529 @@
+@@ -0,0 +1,3517 @@
 +CONFIG_KERNEL_ZSTD=y
 +CONFIG_SYSVIPC=y
 +CONFIG_POSIX_MQUEUE=y
@@ -1853,7 +1845,6 @@ index 000000000000..49c11973804b
 +CONFIG_CGROUP_PIDS=y
 +CONFIG_CGROUP_RDMA=y
 +CONFIG_CGROUP_FREEZER=y
-+CONFIG_CGROUP_HUGETLB=y
 +CONFIG_CPUSETS=y
 +CONFIG_CGROUP_DEVICE=y
 +CONFIG_CGROUP_CPUACCT=y
@@ -1876,8 +1867,7 @@ index 000000000000..49c11973804b
 +CONFIG_XEN_PVH=y
 +CONFIG_NR_CPUS=384
 +CONFIG_X86_REROUTE_FOR_BROKEN_BOOT_IRQS=y
-+# CONFIG_X86_MCE_AMD is not set
-+CONFIG_X86_MCE_INJECT=y
++# CONFIG_X86_MCE is not set
 +CONFIG_PERF_EVENTS_INTEL_UNCORE=m
 +CONFIG_PERF_EVENTS_INTEL_RAPL=m
 +CONFIG_PERF_EVENTS_INTEL_CSTATE=m
@@ -1898,6 +1888,7 @@ index 000000000000..49c11973804b
 +CONFIG_KEXEC=y
 +CONFIG_KEXEC_FILE=y
 +CONFIG_KEXEC_JUMP=y
++# CONFIG_RANDOMIZE_BASE is not set
 +CONFIG_HIBERNATION=y
 +CONFIG_PM_WAKELOCKS=y
 +CONFIG_PM_DEBUG=y
@@ -1923,7 +1914,6 @@ index 000000000000..49c11973804b
 +CONFIG_ACPI_APEI_EINJ=m
 +CONFIG_ACPI_APEI_ERST_DEBUG=m
 +CONFIG_ACPI_DPTF=y
-+CONFIG_ACPI_EXTLOG=m
 +CONFIG_ACPI_CONFIGFS=m
 +CONFIG_ACPI_PFRUT=m
 +CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
@@ -1945,8 +1935,8 @@ index 000000000000..49c11973804b
 +CONFIG_KVM=y
 +CONFIG_KVM_INTEL=y
 +CONFIG_PKVM_INTEL=y
++CONFIG_PKVM_INTEL_VMXROOT_MMIO=y
 +CONFIG_PKVM_INTEL_DEBUG=y
-+# CONFIG_PKVM_EMULATED_VE is not set
 +CONFIG_X86_SGX_KVM=y
 +CONFIG_KVM_AMD=y
 +CONFIG_KPROBES=y
@@ -1975,8 +1965,6 @@ index 000000000000..49c11973804b
 +# CONFIG_COMPAT_BRK is not set
 +CONFIG_MEMORY_HOTPLUG=y
 +CONFIG_MEMORY_HOTREMOVE=y
-+CONFIG_TRANSPARENT_HUGEPAGE=y
-+CONFIG_TRANSPARENT_HUGEPAGE_MADVISE=y
 +CONFIG_CMA=y
 +CONFIG_IDLE_PAGE_TRACKING=y
 +CONFIG_ZONE_DEVICE=y
@@ -4701,15 +4689,9 @@ index 000000000000..49c11973804b
 +CONFIG_EDAC_IE31200=m
 +CONFIG_EDAC_X38=m
 +CONFIG_EDAC_I5400=m
-+CONFIG_EDAC_I7CORE=m
 +CONFIG_EDAC_I5000=m
 +CONFIG_EDAC_I5100=m
 +CONFIG_EDAC_I7300=m
-+CONFIG_EDAC_SBRIDGE=m
-+CONFIG_EDAC_SKX=m
-+CONFIG_EDAC_I10NM=m
-+CONFIG_EDAC_PND2=m
-+CONFIG_EDAC_IGEN6=m
 +CONFIG_RTC_CLASS=y
 +# CONFIG_RTC_HCTOSYS is not set
 +CONFIG_RTC_DRV_TEST=m
@@ -4841,7 +4823,6 @@ index 000000000000..49c11973804b
 +CONFIG_XENFS=m
 +CONFIG_XEN_PVCALLS_FRONTEND=m
 +CONFIG_XEN_PVCALLS_BACKEND=m
-+CONFIG_XEN_MCE_LOG=y
 +CONFIG_STAGING=y
 +CONFIG_PRISM2_USB=m
 +CONFIG_RTL8192U=m
@@ -5058,7 +5039,7 @@ index 000000000000..49c11973804b
 +CONFIG_USB4_DMA_TEST=m
 +CONFIG_ANDROID_BINDER_IPC=y
 +CONFIG_ANDROID_BINDERFS=y
-+CONFIG_DEV_DAX=m
++CONFIG_DEV_DAX_HMEM=m
 +CONFIG_NVMEM_RAVE_SP_EEPROM=m
 +CONFIG_NVMEM_RMEM=m
 +CONFIG_NVMEM_SPMI_SDAM=m
@@ -5117,7 +5098,6 @@ index 000000000000..49c11973804b
 +CONFIG_NTFS3_FS_POSIX_ACL=y
 +CONFIG_PROC_KCORE=y
 +CONFIG_TMPFS_POSIX_ACL=y
-+CONFIG_HUGETLBFS=y
 +CONFIG_ORANGEFS_FS=m
 +CONFIG_ADFS_FS=m
 +CONFIG_AFFS_FS=m
@@ -5349,8 +5329,8 @@ index 000000000000..49c11973804b
 +CONFIG_EARLY_PRINTK_DBGP=y
 +CONFIG_EARLY_PRINTK_USB_XDBC=y
 +CONFIG_DEBUG_BOOT_PARAMS=y
++# CONFIG_X86_DEBUG_FPU is not set
 +CONFIG_PUNIT_ATOM_DEBUG=m
-+CONFIG_UNWINDER_FRAME_POINTER=y
 +CONFIG_KUNIT=m
 +# CONFIG_KUNIT_DEBUGFS is not set
 +CONFIG_KUNIT_ALL_TESTS=m
@@ -7012,10 +6992,10 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..48ca1db9405b
+index 000000000000..e58042887bb5
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,289 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -7278,12 +7258,13 @@ index 000000000000..48ca1db9405b
 +static __maybe_unused int __get_user_hyp32(struct kvm_vcpu *vcpu, u32 *ret, u32 *addr)
 +	{ return -ENOTSUPP; }
 +int __get_user_hyp64(struct kvm_vcpu *vcpu, u64 *ret, u64 *addr);
++int print_guest_maps(struct kvm_vcpu *vcpu);
 +#else
-+static bool in_hyp_mode(void) { return false; }
-+static unsigned long read_cr3(void) { return ~0; }
-+static unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
++static __maybe_unused bool in_hyp_mode(void) { return false; }
++static __maybe_unused unsigned long read_cr3(void) { return ~0; }
++static __maybe_unused unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
 +	{ return ~0; }
-+static unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
++static __maybe_unused unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
 +	{ return ~0; }
 +static __maybe_unused unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +	{ return ~0; }
@@ -7299,6 +7280,8 @@ index 000000000000..48ca1db9405b
 +static __maybe_unused int __hyp_vcpu_write_guest_page(struct kvm_vcpu *vcpu,
 +						      struct kvm_memory_slot *slot, gfn_t gfn,
 +						      const void *data, int offset, int len)
++	{ return -ENOTSUPP; }
++static __maybe_unused int print_guest_maps(struct kvm_vcpu *vcpu)
 +	{ return -ENOTSUPP; }
 +#endif
 +#endif
@@ -8056,10 +8039,10 @@ index 78ccb5ec3c0e..5d33e9c6556a 100644
  . = ASSERT((retbleed_return_thunk & 0x3f) == 0, "retbleed_return_thunk not cacheline-aligned");
  . = ASSERT((srso_safe_ret & 0x3f) == 0, "srso_safe_ret not cacheline-aligned");
 diff --git a/arch/x86/kvm/Kconfig b/arch/x86/kvm/Kconfig
-index 67be7f217e37..57b157cbfb59 100644
+index 67be7f217e37..10af1dec4fa8 100644
 --- a/arch/x86/kvm/Kconfig
 +++ b/arch/x86/kvm/Kconfig
-@@ -87,6 +87,48 @@ config KVM_INTEL
+@@ -87,6 +87,63 @@ config KVM_INTEL
  	  To compile this as a module, choose M here: the module
  	  will be called kvm-intel.
  
@@ -8079,12 +8062,27 @@ index 67be7f217e37..57b157cbfb59 100644
 +
 +	  If unsure, say N.
 +
++config PKVM_EMULATED_VE
++	bool "PKVM Emulate #VE"
++	depends on PKVM_INTEL || PKVM_GUEST
++	default n
++	help
++	  Emulate virtualized exceptions for VCPUs that do not have the
++	  the #VE support in the hardware. This allows running normal
++	  pkvm/tdx style guests that handle their own MMIO instruction
++	  decoding. Note that this requires full guest support in all
++	  CPU operational modes.
++
++	  Use this if you trust the hypervisor code, otherwise say no.
++
 +config PKVM_INTEL_VMXROOT_MMIO
 +	bool "Use the VMX root mode MMIO emulation"
 +	depends on PKVM_INTEL
++	depends on TRANSPARENT_HUGEPAGE
 +	help
-+	  Allows the PKVM to work with any guest bios on any hardware
-+	  as the MMIO emulation is implemented in the vmxroot mode.
++	  Allows the protected VMs to work with any guest, any bios on
++	  any hardware as the MMIO emulation is implemented by the PKVM
++	  in the vmxroot mode.
 +
 +	  Use this if you trust the hypervisor code, otherwise say no.
 +
@@ -8824,10 +8822,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..7f0174bd857b
+index 000000000000..8c4e8f446ae7
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1177 @@
+@@ -0,0 +1,1181 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -9241,6 +9239,7 @@ index 000000000000..7f0174bd857b
 +
 +	pkvm_err("%s: memory access violation by vm 0x%x for 0x%lx/0x%lx at 0x%lx/0x%lx\n",
 +		 __func__, vcpu->kvm->pkvm.shadow_vm_handle, gla, gpa, eip, eipp);
++	pkvm_err("%s: CR3 0x%lx		EPT 0x%lx\n", __func__, cr3, eptp);
 +
 +	if ((eip == ~0) || (eipp == ~0))
 +		return;
@@ -9252,6 +9251,9 @@ index 000000000000..7f0174bd857b
 +
 +	/* Inject a general protection fault */
 +	inject_guest_gpf();
++
++	/* Show guest maps */
++	print_guest_maps(vcpu);
 +}
 +
 +int handle_host_ept_violation(struct kvm_vcpu *vcpu, bool *skip_instruction)
@@ -16756,10 +16758,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..cb39a2487c77
+index 000000000000..c987d972086a
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1937 @@
+@@ -0,0 +1,1989 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -17645,11 +17647,13 @@ index 000000000000..cb39a2487c77
 +static u64 read_guest_phys(struct kvm_vcpu *vcpu, u64 phys)
 +{
 +	int res, off;
-+	void *vir;
-+	u64 val;
++	u64 vir, val;
 +
 +	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
-+		vir = pkvm_phys_to_virt(phys);
++		vir = (u64)pkvm_phys_to_virt(phys);
++		if (vir == ~0)
++			return ~0;
++
 +		return *(u64 *)vir;
 +	}
 +	off = phys & (PAGE_SIZE - 1);
@@ -17708,7 +17712,6 @@ index 000000000000..cb39a2487c77
 +	return (pte & PAGE_PFN_MASK) + (virt_addr & 0xFFF);
 +}
 +
-+__attribute__((optimize(0)))
 +unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
 +{
 +	u64 pml4i = (gpa >> 39) & 0x1FF;
@@ -17718,7 +17721,7 @@ index 000000000000..cb39a2487c77
 +	u64 pml4e, pdpte, pde, pte, paw;
 +
 +	paw = eptp & EPTP_PHYS_ADDR_WIDTH_MASK;
-+	if (paw != EPTP_PHYS_ADDR_WIDTH_48BIT)
++	if ((paw != 0) && (paw != EPTP_PHYS_ADDR_WIDTH_48BIT))
 +		BUG();
 +
 +	pml4e = read_guest_phys(vcpu, (eptp & PAGE_PFN_MASK) + pml4i * sizeof(u64));
@@ -17739,6 +17742,57 @@ index 000000000000..cb39a2487c77
 +		return ~0;
 +
 +	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
++}
++
++int print_guest_maps(struct kvm_vcpu *vcpu)
++{
++	struct kvm_memslots *slots = vcpu->kvm->memslots[0];
++	struct kvm_memory_slot *slot;
++	u64 slot_start = ~0UL, slot_end = ~0UL;
++	u64 eptp, tmp, va, ma, sz;
++	int bkt, idx, cnt = 0;
++
++	/* FIXME: these PKVM_HOST_HANDLEs are kernel writable */
++	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE)
++		eptp = pkvm_hyp->host_vm.ept->root_pa;
++	else
++		eptp = vcpu->arch.mmu->root.hpa;
++	if (!eptp) {
++		pkvm_err("vcpu 0x%llx ept not set\n", (u64)vcpu);
++		return -EINVAL;
++	}
++	pkvm_info("VADDR -> PHYS   SIZE\n");
++
++	idx = srcu_read_lock(&vcpu->kvm->srcu);
++	kvm_for_each_memslot(slot, bkt, slots) {
++		if (!slot->npages)
++			continue;
++
++		slot_start = slot->base_gfn << PAGE_SHIFT;
++		slot_end = slot_start + (slot->npages * PAGE_SIZE);
++		ma = ~0; va = ~0; sz = 0;
++
++		while (slot_start < slot_end) {
++			tmp = guest_ept_lookup(vcpu, eptp, slot_start);
++			if (tmp != ~0) {
++				if (ma == ~0) {
++					ma = tmp;
++					va = slot_start;
++				}
++				cnt++;
++				goto cont;
++			}
++			if (ma != ~0)
++				pkvm_info("0x%016llx -> 0x%016llx %llu\n",
++					  va, ma, sz);
++			ma = ~0; va = ~0; sz = 0;
++cont:
++			sz += PAGE_SIZE;
++			slot_start += PAGE_SIZE;
++		}
++	}
++	srcu_read_unlock(&vcpu->kvm->srcu, idx);
++	return cnt;
 +}
 +
 +/* Original pkvm walk */

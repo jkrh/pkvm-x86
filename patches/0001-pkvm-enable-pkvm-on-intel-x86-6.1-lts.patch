@@ -1,4 +1,4 @@
-From e5da080fd2e13cd601c36834d19a44d3274be2d1 Mon Sep 17 00:00:00 2001
+From e9d842a9f369f02bc46376b273adf9311a384da2 Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -70,7 +70,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/Makefile                         |    2 +
  arch/x86/kvm/emulate.c                        |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
- arch/x86/kvm/mmu/mmu.c                        |   53 +-
+ arch/x86/kvm/mmu/mmu.c                        |   52 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |   19 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
  arch/x86/kvm/mmu/tdp_mmu.c                    |   22 +-
@@ -83,7 +83,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1181 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1182 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   75 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  465 +++
@@ -109,7 +109,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1987 ++++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 2029 ++++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -176,7 +176,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 24351 insertions(+), 832 deletions(-)
+ 165 files changed, 24393 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -6992,7 +6992,7 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..e58042887bb5
+index 000000000000..d1b64f480374
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
 @@ -0,0 +1,289 @@
@@ -7248,7 +7248,7 @@ index 000000000000..e58042887bb5
 +bool in_hyp_mode(void);
 +unsigned long read_cr3(void);
 +unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr);
-+unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa);
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte);
 +unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot, gfn_t gfn,
@@ -7264,7 +7264,7 @@ index 000000000000..e58042887bb5
 +static __maybe_unused unsigned long read_cr3(void) { return ~0; }
 +static __maybe_unused unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
 +	{ return ~0; }
-+static __maybe_unused unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
++static __maybe_unused unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *)
 +	{ return ~0; }
 +static __maybe_unused unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +	{ return ~0; }
@@ -8173,7 +8173,7 @@ index 59804be91b5b..a8ef25726236 100644
  			       X86_CR4_SMEP | X86_CR4_SMAP | X86_CR4_PKE)
  
 diff --git a/arch/x86/kvm/mmu/mmu.c b/arch/x86/kvm/mmu/mmu.c
-index d30325e297a0..f8f900fbe635 100644
+index d30325e297a0..c94269f03794 100644
 --- a/arch/x86/kvm/mmu/mmu.c
 +++ b/arch/x86/kvm/mmu/mmu.c
 @@ -255,18 +255,6 @@ static inline bool kvm_available_flush_tlb_with_range(void)
@@ -8234,11 +8234,7 @@ index d30325e297a0..f8f900fbe635 100644
  	__direct_pte_prefetch(vcpu, sp, sptep);
  }
  
-@@ -4240,16 +4233,23 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
- 	       mmu_invalidate_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
- }
- 
-+__attribute__((optimize(1)))
+@@ -4243,13 +4236,19 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
  static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  {
  	bool is_tdp_mmu_fault = is_tdp_mmu(vcpu->arch.mmu);
@@ -8259,7 +8255,7 @@ index d30325e297a0..f8f900fbe635 100644
  	if (page_fault_handle_page_track(vcpu, fault))
  		return RET_PF_EMULATE;
  
-@@ -4291,6 +4291,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
+@@ -4291,6 +4290,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
  		r = __direct_map(vcpu, fault);
  	}
  
@@ -8279,7 +8275,7 @@ index d30325e297a0..f8f900fbe635 100644
  out_unlock:
  	if (is_tdp_mmu_fault)
  		read_unlock(&vcpu->kvm->mmu_lock);
-@@ -5569,6 +5582,11 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
+@@ -5569,6 +5581,11 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
  		return RET_PF_RETRY;
  
  	r = RET_PF_INVALID;
@@ -8291,7 +8287,7 @@ index d30325e297a0..f8f900fbe635 100644
  	if (unlikely(error_code & PFERR_RSVD_MASK)) {
  		r = handle_mmio_page_fault(vcpu, cr2_or_gpa, direct);
  		if (r == RET_PF_EMULATE)
-@@ -6428,7 +6446,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
+@@ -6428,7 +6445,8 @@ static bool kvm_mmu_zap_collapsible_spte(struct kvm *kvm,
  			kvm_zap_one_rmap_spte(kvm, rmap_head, sptep);
  
  			if (kvm_available_flush_tlb_with_range())
@@ -8822,10 +8818,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..8c4e8f446ae7
+index 000000000000..caf770adc946
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1181 @@
+@@ -0,0 +1,1182 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -9218,9 +9214,10 @@ index 000000000000..8c4e8f446ae7
 +	unsigned long eptp = vmcs_read64(EPT_POINTER);
 +	unsigned long eipp, tmp;
 +	char num[8];
++	u64 spte;
 +
 +	/* Translate it from the shadow to report it */
-+	tmp = guest_ept_lookup(vcpu, eptp, gpa);
++	tmp = guest_ept_lookup(vcpu, eptp, gpa, &spte);
 +	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
 +		if (tmp == ~0)
 +			pkvm_err("%s: 0x%lx is no longer in the host\n", __func__,
@@ -9234,7 +9231,7 @@ index 000000000000..8c4e8f446ae7
 +	/* Make a linear mapping address of the IP for the hyp use */
 +	eipp = guest_virt_to_phys(vcpu, cr3, eip);
 +	if (vcpu->kvm->pkvm.shadow_vm_handle != PKVM_HOST_HANDLE)
-+		eipp = guest_ept_lookup(vcpu, eptp, eipp);
++		eipp = guest_ept_lookup(vcpu, eptp, eipp, &spte);
 +	eip = (unsigned long)pkvm_phys_to_virt(eipp);
 +
 +	pkvm_err("%s: memory access violation by vm 0x%x for 0x%lx/0x%lx at 0x%lx/0x%lx\n",
@@ -16751,10 +16748,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..b3bb40d86d11
+index 000000000000..802138d9630d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,1987 @@
+@@ -0,0 +1,2029 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -16793,6 +16790,13 @@ index 000000000000..b3bb40d86d11
 +
 +struct vmcs *host_vmcs = 0;
 +extern u64 host_eptp;
++extern u64 __read_mostly shadow_mmio_value;
++extern u64 __read_mostly shadow_mmio_mask;
++
++static inline bool is_mmio_spte(u64 spte)
++{
++	return (spte & shadow_mmio_mask) == shadow_mmio_value;
++}
 +
 +__attribute__((unused))
 +char *print_apicstate(void)
@@ -17705,7 +17709,7 @@ index 000000000000..b3bb40d86d11
 +	return (pte & PAGE_PFN_MASK) + (virt_addr & 0xFFF);
 +}
 +
-+unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa)
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte)
 +{
 +	u64 pml4i = (gpa >> 39) & 0x1FF;
 +	u64 pdpti = (gpa >> 30) & 0x1FF;
@@ -17723,17 +17727,22 @@ index 000000000000..b3bb40d86d11
 +	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
 +	if ((pdpte == ~0) || !(pdpte & EPT_ENTRY_READ_MASK))
 +		return ~0;
-+	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK)
++	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK) {
++		*spte = pdpte;
 +		return (pdpte & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_1GB_MASK);
++	}
 +	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
 +	if ((pde == ~0) || !(pde & EPT_ENTRY_READ_MASK))
 +		return ~0;
-+	if (pde & EPT_ENTRY_LARGE_PAGE_MASK)
++	if (pde & EPT_ENTRY_LARGE_PAGE_MASK) {
++		*spte = pde;
 +		return (pde & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_2MB_MASK);
++	}
 +	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
 +	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
 +		return ~0;
 +
++	*spte = pte;
 +	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
 +}
 +
@@ -17742,8 +17751,8 @@ index 000000000000..b3bb40d86d11
 +	struct kvm_memslots *slots = vcpu->kvm->memslots[0];
 +	struct kvm_memory_slot *slot;
 +	u64 slot_start = ~0UL, slot_end = ~0UL;
-+	u64 eptp, tmp, va, ma, sz;
-+	int bkt, idx, cnt = 0;
++	u64 eptp, spte, tmp, va, ma, sz, mmio;
++	int bkt, idx, cnt = 0, perms, sve;
 +
 +	/* FIXME: these PKVM_HOST_HANDLEs are kernel writable */
 +	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE)
@@ -17755,31 +17764,56 @@ index 000000000000..b3bb40d86d11
 +		return -EINVAL;
 +	}
 +	idx = srcu_read_lock(&vcpu->kvm->srcu);
++
++	/*
++	 * Note: on X86 the memslots do not describe the MMIO regions,
++	 * so this should never report any. In order to get those this
++	 * should scan kvm io bus's as well, aka kvm->buses[KVM_MMIO_BUS].
++	 */
 +	kvm_for_each_memslot(slot, bkt, slots) {
 +		if (!slot->npages)
 +			continue;
 +
 +		slot_start = slot->base_gfn << PAGE_SHIFT;
 +		slot_end = slot_start + (slot->npages * PAGE_SIZE);
-+		ma = ~0; va = ~0; sz = 0;
++		ma = ~0; va = ~0; sz = 0; mmio = false; perms = 0;
 +
 +		while (slot_start < slot_end) {
-+			tmp = guest_ept_lookup(vcpu, eptp, slot_start);
++			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte);
 +			if (tmp != ~0) {
 +				if (ma == ~0) {
 +					ma = tmp;
 +					va = slot_start;
++					if (is_mmio_spte(spte))
++						mmio = true;
++					else
++						mmio = false;
++					perms = spte & 0x7;
++					sve = spte & SUPPRESS_VE;
 +				}
 +				cnt++;
++				if (perms != (spte & 0x7))
++					goto print;
++				if (sve != (spte & SUPPRESS_VE))
++					goto print;
++				if (mmio != is_mmio_spte(spte))
++					goto print;
 +				goto cont;
-+			}
++			} else
++				spte = 0;
++print:
 +			if (ma != ~0)
-+				pkvm_info("0x%016llx -> 0x%016llx %llu\n",
-+					  va, ma, sz);
-+			ma = ~0; va = ~0; sz = 0;
++				pkvm_info("0x%016llx -> 0x%016llx %llu 0x%d %u type: %s\n",
++					  va, ma, sz, perms, sve, (mmio) ? "mmio" : "memory" );
++			ma = ~0; va = ~0; sz = 0; mmio = false;
 +cont:
-+			sz += PAGE_SIZE;
-+			slot_start += PAGE_SIZE;
++			if (spte && (spte & (1ULL << 7))) {
++				sz += SZ_2M;
++				slot_start += SZ_2M;
++			} else {
++				sz += PAGE_SIZE;
++				slot_start += PAGE_SIZE;
++			}
 +		}
 +	}
 +	srcu_read_unlock(&vcpu->kvm->srcu, idx);
@@ -17871,6 +17905,11 @@ index 000000000000..b3bb40d86d11
 +	return 0;
 +}
 +
++/*
++ * FIXME: think about if additional security is needed for the hyp read|write
++ * functions. Memslots are techically generated by the untrusted host, can
++ * these be tricked to read|write illegal content?
++ */
 +int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 +			  gfn_t gfn, void *data, int offset, int len)
 +{

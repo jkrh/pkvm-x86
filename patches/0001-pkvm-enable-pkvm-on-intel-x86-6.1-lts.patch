@@ -1,4 +1,4 @@
-From e9d842a9f369f02bc46376b273adf9311a384da2 Mon Sep 17 00:00:00 2001
+From a9c2e904e1723b5db9cd554f07cb83683b07afbc Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -86,7 +86,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1182 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   75 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
- arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  465 +++
+ arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  467 +++
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.c        |  374 ++
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.h        |   67 +
@@ -107,9 +107,10 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 +
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
+ arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  338 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
- arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 2029 ++++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1682 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 ++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
@@ -128,7 +129,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  146 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx.c               |  119 +
- arch/x86/kvm/vmx/pkvm/hyp/vmx.h               |   63 +
+ arch/x86/kvm/vmx/pkvm/hyp/vmx.h               |   64 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx_asm.S           |  186 +
  arch/x86/kvm/vmx/pkvm/hyp/vmx_ops.h           |  152 +
  arch/x86/kvm/vmx/pkvm/include/capabilities.h  |   95 +
@@ -176,7 +177,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 165 files changed, 24393 insertions(+), 832 deletions(-)
+ 166 files changed, 24387 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -225,6 +226,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/memory.c
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/memory.h
+ create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/mmops.c
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/mmu.c
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/mmu.h
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/nested.c
@@ -7863,7 +7865,7 @@ index 796e2f9e8761..9b4b4f93ef62 100644
  
  static int __init parse_no_kvmapf(char *arg)
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
-index 804a252382da..dbc5b05a099f 100644
+index 804a252382da..86f3e3bca919 100644
 --- a/arch/x86/kernel/setup.c
 +++ b/arch/x86/kernel/setup.c
 @@ -37,6 +37,7 @@
@@ -7885,15 +7887,15 @@ index 804a252382da..dbc5b05a099f 100644
  	if (boot_cpu_has(X86_FEATURE_NX))
  		__supported_pte_mask |= _PAGE_NX;
  	else
-@@ -1327,6 +1332,8 @@ void __init setup_arch(char **cmdline_p)
- #endif
+@@ -1190,6 +1195,8 @@ void __init setup_arch(char **cmdline_p)
  
- 	unwind_init();
-+
+ 	memblock_set_current_limit(get_max_mapped());
+ 
 +	pkvm_reserve();
- }
- 
- #ifdef CONFIG_X86_32
++
+ 	/*
+ 	 * NOTE: On x86-32, only from this point on, fixmaps are ready for use.
+ 	 */
 diff --git a/arch/x86/kernel/traps.c b/arch/x86/kernel/traps.c
 index c0a5a4f225d9..f026ffb62de6 100644
 --- a/arch/x86/kernel/traps.c
@@ -8514,7 +8516,7 @@ index 000000000000..6ca49fffb4dd
 +$(obj-intel-pkvm): $(obj)/pkvm_constants.h
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/Makefile b/arch/x86/kvm/vmx/pkvm/hyp/Makefile
 new file mode 100644
-index 000000000000..e8716dd2b695
+index 000000000000..b6bb0e28de1c
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/Makefile
 @@ -0,0 +1,81 @@
@@ -8540,7 +8542,7 @@ index 000000000000..e8716dd2b695
 +		   $(obj)/mem_protect.o $(obj)/lapic.o \
 +		   $(obj)/ptdev.o $(obj)/iommu_spgt.o \
 +		   $(obj)/io_emulate.o $(obj)/pci.o \
-+		   $(obj)/trace.o
++		   $(obj)/trace.o $(obj)/mmops.o
 +
 +virt-dir	:= $(objtree)/$(KVM_PKVM)
 +pkvm-hyp-obj	+= $(virt-dir)/page_alloc.o
@@ -10160,10 +10162,10 @@ index 000000000000..87252724a501
 +SYM_CODE_END(nmi_handler)
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
 new file mode 100644
-index 000000000000..57b585d55428
+index 000000000000..ee0af8669e79
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c
-@@ -0,0 +1,465 @@
+@@ -0,0 +1,467 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -10557,6 +10559,8 @@ index 000000000000..57b585d55428
 +		if (sections[i].type == PKVM_RESERVED_MEMORY) {
 +			pkvm_mem_base = sections[i].addr;
 +			pkvm_mem_size = sections[i].size;
++			pkvm_info("pkvm: section 0x%llx size %lu\n",
++				  pkvm_mem_base, pkvm_mem_size);
 +		}
 +	}
 +	if (pkvm_mem_size == 0) {
@@ -16448,6 +16452,350 @@ index 000000000000..ba6608ec6800
 +
 +u64 get_max_physaddr_bits(void);
 +#endif
+diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
+new file mode 100644
+index 000000000000..35df04fe8c5c
+--- /dev/null
++++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
+@@ -0,0 +1,338 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0
++ */
++#include <pkvm.h>
++#include <asm/pkvm.h>
++#include <asm/pgtable_types.h>
++#include <vmx/vmx_debug.h>
++#include <linux/ramlog.h>
++#include <linux/types.h>
++#include "pkvm_hyp.h"
++#include "nested.h"
++#include "cpu.h"
++#include "vmx.h"
++#include "ept.h"
++#include "debug.h"
++#include "mem_protect.h"
++#include "asm/apicdef.h"
++
++#define PAGE_PRESENT_MASK	0x1
++#define PAGE_PFN_MASK		0x000FFFFFFFFFF000
++#define PAGE_HUGE_MASK		0x80
++#define PAGE_SIZE_2MB_MASK	0x1FFFFF
++#define PAGE_SIZE_1GB_MASK	0x3FFFFFFF
++
++#define EPT_ENTRY_READ_MASK	(1ULL << 0)
++#define EPT_ENTRY_WRITE_MASK	(1ULL << 1)
++#define EPT_ENTRY_EXECUTE_MASK	(1ULL << 2)
++#define EPT_ENTRY_LARGE_PAGE_MASK (1ULL << 7)
++#define EPTP_PHYS_ADDR_WIDTH_MASK  0x7ULL
++#define EPTP_PHYS_ADDR_WIDTH_48BIT 0x6ULL
++
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
++
++struct vmcs *host_vmcs = 0;
++extern u64 __read_mostly shadow_mmio_value;
++extern u64 __read_mostly shadow_mmio_mask;
++
++static inline bool is_mmio_spte(u64 spte)
++{
++	return (spte & shadow_mmio_mask) == shadow_mmio_value;
++}
++
++static void hyp_write_cr3(u64 cr3)
++{
++	asm volatile("mov %0,%%cr3": : "r" (cr3) : "memory");
++}
++
++unsigned long read_cr3(void)
++{
++	unsigned long cr3;
++
++	asm volatile("mov %%cr3, %0" : "=r" (cr3));
++	return cr3;
++}
++
++bool in_hyp_mode(void)
++{
++	if (read_cr3() == pkvm_hyp->mmu->root_pa)
++		return true;
++	return false;
++}
++
++static u64 read_guest_phys(struct kvm_vcpu *vcpu, u64 phys)
++{
++	struct shadow_vcpu_state *shadow_vcpu;
++	u64 vir, val;
++
++	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
++		vir = (u64)pkvm_phys_to_virt(phys);
++		if (vir == ~0)
++			return vir;
++		return *(u64 *)vir;
++	}
++
++	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
++	if (!shadow_vcpu)
++		BUG();
++
++	vir = gfn_to_hva(vcpu->kvm, phys >> PAGE_SHIFT);
++	if (kvm_is_error_hva(vir))
++		return ~0;
++
++	__get_user_hyp64(vcpu, &val, (u64 *)vir);
++	return val;
++}
++
++unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
++{
++	u64 pml4i = (virt_addr >> 39) & 0x1FF;
++	u64 pdpti = (virt_addr >> 30) & 0x1FF;
++	u64 pdi   = (virt_addr >> 21) & 0x1FF;
++	u64 pti   = (virt_addr >> 12) & 0x1FF;
++	u64 pml4e, pdpte, pde, pte;
++
++	/*
++	 * We support only 64bit 4 level walks, for now. See the capabilities.h
++	 */
++	pml4e = read_guest_phys(vcpu, (cr3 & PAGE_PFN_MASK) + pml4i * sizeof(u64));
++	if ((pml4e == ~0) || !(pml4e & PAGE_PRESENT_MASK))
++		return ~0;
++	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
++	if ((pdpte == ~0) || !(pdpte & PAGE_PRESENT_MASK))
++		return ~0;
++	if (pdpte & PAGE_HUGE_MASK)
++		return (pdpte & PAGE_PFN_MASK) + (virt_addr & PAGE_SIZE_1GB_MASK);
++	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
++	if ((pde == ~0) || !(pde & PAGE_PRESENT_MASK))
++		return ~0;
++	if (pde & PAGE_HUGE_MASK)
++		return (pde & PAGE_PFN_MASK) + (virt_addr & PAGE_SIZE_2MB_MASK);
++	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
++	if ((pte == ~0) || !(pte & PAGE_PRESENT_MASK))
++		return ~0;
++
++	return (pte & PAGE_PFN_MASK) + (virt_addr & 0xFFF);
++}
++
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte)
++{
++	u64 pml4i = (gpa >> 39) & 0x1FF;
++	u64 pdpti = (gpa >> 30) & 0x1FF;
++	u64 pdi   = (gpa >> 21) & 0x1FF;
++	u64 pti   = (gpa >> 12) & 0x1FF;
++	u64 pml4e, pdpte, pde, pte, paw;
++
++	paw = eptp & EPTP_PHYS_ADDR_WIDTH_MASK;
++	if ((paw != 0) && (paw != EPTP_PHYS_ADDR_WIDTH_48BIT))
++		BUG();
++
++	pml4e = read_guest_phys(vcpu, (eptp & PAGE_PFN_MASK) + pml4i * sizeof(u64));
++	if ((pml4e == ~0) || !(pml4e & EPT_ENTRY_READ_MASK))
++		return ~0;
++	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
++	if ((pdpte == ~0) || !(pdpte & EPT_ENTRY_READ_MASK))
++		return ~0;
++	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK) {
++		*spte = pdpte;
++		return (pdpte & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_1GB_MASK);
++	}
++	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
++	if ((pde == ~0) || !(pde & EPT_ENTRY_READ_MASK))
++		return ~0;
++	if (pde & EPT_ENTRY_LARGE_PAGE_MASK) {
++		*spte = pde;
++		return (pde & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_2MB_MASK);
++	}
++	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
++	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
++		return ~0;
++
++	*spte = pte;
++	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
++}
++
++int print_guest_maps(struct kvm_vcpu *vcpu)
++{
++	struct kvm_memslots *slots = vcpu->kvm->memslots[0];
++	struct kvm_memory_slot *slot;
++	u64 slot_start = ~0UL, slot_end = ~0UL;
++	u64 eptp, spte, tmp, va, ma, sz, mmio;
++	int bkt, idx, cnt = 0, perms, sve;
++
++	/* FIXME: these PKVM_HOST_HANDLEs are kernel writable */
++	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE)
++		eptp = pkvm_hyp->host_vm.ept->root_pa;
++	else
++		eptp = vcpu->arch.mmu->root.hpa;
++	if (!eptp) {
++		pkvm_err("vcpu 0x%llx ept not set\n", (u64)vcpu);
++		return -EINVAL;
++	}
++	idx = srcu_read_lock(&vcpu->kvm->srcu);
++
++	/*
++	 * Note: on X86 the memslots do not describe the MMIO regions,
++	 * so this should never report any. In order to get those this
++	 * should scan kvm io bus's as well, aka kvm->buses[KVM_MMIO_BUS].
++	 */
++	kvm_for_each_memslot(slot, bkt, slots) {
++		if (!slot->npages)
++			continue;
++
++		slot_start = slot->base_gfn << PAGE_SHIFT;
++		slot_end = slot_start + (slot->npages * PAGE_SIZE);
++		ma = ~0; va = ~0; sz = 0; mmio = false; perms = 0;
++
++		while (slot_start < slot_end) {
++			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte);
++			if (tmp != ~0) {
++				if (ma == ~0) {
++					ma = tmp;
++					va = slot_start;
++					if (is_mmio_spte(spte))
++						mmio = true;
++					else
++						mmio = false;
++					perms = spte & 0x7;
++					sve = spte & SUPPRESS_VE;
++				}
++				cnt++;
++				if (perms != (spte & 0x7))
++					goto print;
++				if (sve != (spte & SUPPRESS_VE))
++					goto print;
++				if (mmio != is_mmio_spte(spte))
++					goto print;
++				goto cont;
++			} else
++				spte = 0;
++print:
++			if (ma != ~0)
++				pkvm_info("0x%016llx -> 0x%016llx %llu 0x%d %u type: %s\n",
++					  va, ma, sz, perms, sve, (mmio) ? "mmio" : "memory" );
++			ma = ~0; va = ~0; sz = 0; mmio = false;
++cont:
++			if (spte && (spte & (1ULL << 7))) {
++				sz += SZ_2M;
++				slot_start += SZ_2M;
++			} else {
++				sz += PAGE_SIZE;
++				slot_start += PAGE_SIZE;
++			}
++		}
++	}
++	srcu_read_unlock(&vcpu->kvm->srcu, idx);
++	return cnt;
++}
++
++/* Original pkvm walk */
++unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
++{
++	struct shadow_vcpu_state *shadow_vcpu;
++	struct pkvm_shadow_vm *vm;
++	struct shadow_ept_desc *desc;
++	struct pkvm_pgtable *sept;
++	unsigned long phys;
++	u64 gprot;
++	int level;
++
++	if (vaddr % PAGE_SIZE)
++		return ~0;
++
++	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
++	if (!shadow_vcpu)
++		BUG();
++
++	vm = shadow_vcpu->vm;
++	desc = &vm->sept_desc;
++	sept = &desc->sept;
++
++	pkvm_pgtable_lookup(sept, vaddr, &phys, &gprot, &level);
++	return phys;
++}
++
++unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr)
++{
++	struct shadow_vcpu_state *shadow_vcpu;
++
++	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
++	if (!shadow_vcpu)
++		BUG();
++
++	return guest_virt_to_phys(vcpu, shadow_vcpu->mm->pgd->pgd, vaddr);
++}
++
++int __get_user_hyp64(struct kvm_vcpu *vcpu, u64 *ret, u64 *vaddr)
++{
++	struct shadow_vcpu_state *shadow_vcpu;
++	u64 val;
++
++	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
++	if (!shadow_vcpu)
++		BUG();
++
++	/* FIXME: why is our vmcs cr3 broken? */
++	hyp_write_cr3(pkvm_virt_to_phys(shadow_vcpu->mm->pgd));
++	asm volatile("stac" ::: "memory");
++	val = *(u64 *)vaddr;
++	asm volatile("clac" ::: "memory");
++	hyp_write_cr3(pkvm_hyp->mmu->root_pa);
++
++	*ret = val;
++	return 0;
++}
++
++int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
++			  gfn_t gfn, void *data, int offset, int len)
++{
++	struct shadow_vcpu_state *shadow_vcpu;
++	unsigned long addr;
++
++	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
++	if (kvm_is_error_hva(addr))
++		return -EFAULT;
++
++	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
++	if (!shadow_vcpu)
++		BUG();
++	addr += offset;
++
++	hyp_write_cr3(pkvm_virt_to_phys(shadow_vcpu->mm->pgd));
++	asm volatile("stac" ::: "memory");
++	while (len--)
++		*(u8 *)data++ = *(u8 *)addr++;
++	asm volatile("clac" ::: "memory");
++	hyp_write_cr3(pkvm_hyp->mmu->root_pa);
++
++	return 0;
++}
++
++int __hyp_vcpu_write_guest_page(struct kvm_vcpu *vcpu,
++				struct kvm_memory_slot *slot, gfn_t gfn,
++				const void *data, int offset, int len)
++{
++	struct shadow_vcpu_state *shadow_vcpu;
++	unsigned long addr;
++
++	addr = gfn_to_hva_memslot(slot, gfn);
++	if (kvm_is_error_hva(addr))
++		return -EFAULT;
++
++	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
++	if (!shadow_vcpu)
++		BUG();
++	addr += offset;
++
++	hyp_write_cr3(pkvm_virt_to_phys(shadow_vcpu->mm->pgd));
++	asm volatile("stac" ::: "memory");
++	while (len--)
++		*(u8 *)addr++ = *(u8 *)data++;
++	asm volatile("clac" ::: "memory");
++	hyp_write_cr3(pkvm_hyp->mmu->root_pa);
++
++	mark_page_dirty_in_slot(vcpu->kvm, slot, gfn);
++	return 0;
++}
++
++#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmu.c b/arch/x86/kvm/vmx/pkvm/hyp/mmu.c
 new file mode 100644
 index 000000000000..5cf5c784e501
@@ -16748,10 +17096,10 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..802138d9630d
+index 000000000000..8f501d56fd80
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
-@@ -0,0 +1,2029 @@
+@@ -0,0 +1,1682 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -16788,15 +17136,7 @@ index 000000000000..802138d9630d
 +	LIST_OF_VMX_MSRS
 +};
 +
-+struct vmcs *host_vmcs = 0;
 +extern u64 host_eptp;
-+extern u64 __read_mostly shadow_mmio_value;
-+extern u64 __read_mostly shadow_mmio_mask;
-+
-+static inline bool is_mmio_spte(u64 spte)
-+{
-+	return (spte & shadow_mmio_mask) == shadow_mmio_value;
-+}
 +
 +__attribute__((unused))
 +char *print_apicstate(void)
@@ -17246,11 +17586,9 @@ index 000000000000..802138d9630d
 +		return false;
 +
 +	/* The host context must be static (vmcs01 + right ept).. */
-+	if (vmcs_read64(EPT_POINTER) != host_eptp) {
-+		pkvm_err("%s: entering emulated call from unknown context?\n",
++	if (vmcs_read64(EPT_POINTER) != host_eptp)
++		panic("%s: entering emulated call from unknown context?\n",
 +			__func__);
-+		BUG();
-+	}
 +
 +	/* And the virtualization must be enabled .. */
 +	asm("mov %%cr4,%0" : "=r"(cr4));
@@ -17622,343 +17960,6 @@ index 000000000000..802138d9630d
 +
 +	return 0;
 +}
-+
-+#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
-+
-+#define PAGE_PRESENT_MASK	0x1
-+#define PAGE_PFN_MASK		0x000FFFFFFFFFF000
-+#define PAGE_HUGE_MASK		0x80
-+#define PAGE_SIZE_2MB_MASK	0x1FFFFF
-+#define PAGE_SIZE_1GB_MASK	0x3FFFFFFF
-+
-+#define EPT_ENTRY_READ_MASK	(1ULL << 0)
-+#define EPT_ENTRY_WRITE_MASK	(1ULL << 1)
-+#define EPT_ENTRY_EXECUTE_MASK	(1ULL << 2)
-+#define EPT_ENTRY_LARGE_PAGE_MASK (1ULL << 7)
-+#define EPTP_PHYS_ADDR_WIDTH_MASK  0x7ULL
-+#define EPTP_PHYS_ADDR_WIDTH_48BIT 0x6ULL
-+
-+#include <linux/types.h>
-+#include <asm/pgtable_types.h>
-+
-+static u64 read_guest_phys(struct kvm_vcpu *vcpu, u64 phys)
-+{
-+	int res, off;
-+	u64 vir, val;
-+
-+	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
-+		vir = (u64)pkvm_phys_to_virt(phys);
-+		if (vir == ~0)
-+			return ~0;
-+
-+		return *(u64 *)vir;
-+	}
-+	off = phys & (PAGE_SIZE - 1);
-+	res = kvm_vcpu_read_guest_page(vcpu, phys >> PAGE_SHIFT, &val, off,
-+				       sizeof(u64));
-+	if (res)
-+		return ~0;
-+	return val;
-+}
-+
-+unsigned long read_cr3(void)
-+{
-+	unsigned long cr3;
-+
-+	asm volatile("mov %%cr3, %0" : "=r" (cr3));
-+	return cr3;
-+}
-+
-+bool in_hyp_mode(void)
-+{
-+	if (read_cr3() == pkvm_hyp->mmu->root_pa)
-+		return true;
-+	return false;
-+}
-+
-+unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
-+{
-+	u64 pml4i = (virt_addr >> 39) & 0x1FF;
-+	u64 pdpti = (virt_addr >> 30) & 0x1FF;
-+	u64 pdi   = (virt_addr >> 21) & 0x1FF;
-+	u64 pti   = (virt_addr >> 12) & 0x1FF;
-+	u64 pml4e, pdpte, pde, pte;
-+
-+	/*
-+	 * We support only 64bit, so on this interesting architecture it implies
-+	 * 4 level walks with 48 bit address space.
-+	 */
-+
-+	pml4e = read_guest_phys(vcpu, (cr3 & PAGE_PFN_MASK) + pml4i * sizeof(u64));
-+	if ((pml4e == ~0) || !(pml4e & PAGE_PRESENT_MASK))
-+		return ~0;
-+	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
-+	if ((pdpte == ~0) || !(pdpte & PAGE_PRESENT_MASK))
-+		return ~0;
-+	if (pdpte & PAGE_HUGE_MASK)
-+		return (pdpte & PAGE_PFN_MASK) + (virt_addr & PAGE_SIZE_1GB_MASK);
-+	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
-+	if ((pde == ~0) || !(pde & PAGE_PRESENT_MASK))
-+		return ~0;
-+	if (pde & PAGE_HUGE_MASK)
-+		return (pde & PAGE_PFN_MASK) + (virt_addr & PAGE_SIZE_2MB_MASK);
-+	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
-+	if ((pte == ~0) || !(pte & PAGE_PRESENT_MASK))
-+		return ~0;
-+
-+	return (pte & PAGE_PFN_MASK) + (virt_addr & 0xFFF);
-+}
-+
-+unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte)
-+{
-+	u64 pml4i = (gpa >> 39) & 0x1FF;
-+	u64 pdpti = (gpa >> 30) & 0x1FF;
-+	u64 pdi   = (gpa >> 21) & 0x1FF;
-+	u64 pti   = (gpa >> 12) & 0x1FF;
-+	u64 pml4e, pdpte, pde, pte, paw;
-+
-+	paw = eptp & EPTP_PHYS_ADDR_WIDTH_MASK;
-+	if ((paw != 0) && (paw != EPTP_PHYS_ADDR_WIDTH_48BIT))
-+		BUG();
-+
-+	pml4e = read_guest_phys(vcpu, (eptp & PAGE_PFN_MASK) + pml4i * sizeof(u64));
-+	if ((pml4e == ~0) || !(pml4e & EPT_ENTRY_READ_MASK))
-+		return ~0;
-+	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
-+	if ((pdpte == ~0) || !(pdpte & EPT_ENTRY_READ_MASK))
-+		return ~0;
-+	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK) {
-+		*spte = pdpte;
-+		return (pdpte & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_1GB_MASK);
-+	}
-+	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
-+	if ((pde == ~0) || !(pde & EPT_ENTRY_READ_MASK))
-+		return ~0;
-+	if (pde & EPT_ENTRY_LARGE_PAGE_MASK) {
-+		*spte = pde;
-+		return (pde & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_2MB_MASK);
-+	}
-+	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
-+	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
-+		return ~0;
-+
-+	*spte = pte;
-+	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
-+}
-+
-+int print_guest_maps(struct kvm_vcpu *vcpu)
-+{
-+	struct kvm_memslots *slots = vcpu->kvm->memslots[0];
-+	struct kvm_memory_slot *slot;
-+	u64 slot_start = ~0UL, slot_end = ~0UL;
-+	u64 eptp, spte, tmp, va, ma, sz, mmio;
-+	int bkt, idx, cnt = 0, perms, sve;
-+
-+	/* FIXME: these PKVM_HOST_HANDLEs are kernel writable */
-+	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE)
-+		eptp = pkvm_hyp->host_vm.ept->root_pa;
-+	else
-+		eptp = vcpu->arch.mmu->root.hpa;
-+	if (!eptp) {
-+		pkvm_err("vcpu 0x%llx ept not set\n", (u64)vcpu);
-+		return -EINVAL;
-+	}
-+	idx = srcu_read_lock(&vcpu->kvm->srcu);
-+
-+	/*
-+	 * Note: on X86 the memslots do not describe the MMIO regions,
-+	 * so this should never report any. In order to get those this
-+	 * should scan kvm io bus's as well, aka kvm->buses[KVM_MMIO_BUS].
-+	 */
-+	kvm_for_each_memslot(slot, bkt, slots) {
-+		if (!slot->npages)
-+			continue;
-+
-+		slot_start = slot->base_gfn << PAGE_SHIFT;
-+		slot_end = slot_start + (slot->npages * PAGE_SIZE);
-+		ma = ~0; va = ~0; sz = 0; mmio = false; perms = 0;
-+
-+		while (slot_start < slot_end) {
-+			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte);
-+			if (tmp != ~0) {
-+				if (ma == ~0) {
-+					ma = tmp;
-+					va = slot_start;
-+					if (is_mmio_spte(spte))
-+						mmio = true;
-+					else
-+						mmio = false;
-+					perms = spte & 0x7;
-+					sve = spte & SUPPRESS_VE;
-+				}
-+				cnt++;
-+				if (perms != (spte & 0x7))
-+					goto print;
-+				if (sve != (spte & SUPPRESS_VE))
-+					goto print;
-+				if (mmio != is_mmio_spte(spte))
-+					goto print;
-+				goto cont;
-+			} else
-+				spte = 0;
-+print:
-+			if (ma != ~0)
-+				pkvm_info("0x%016llx -> 0x%016llx %llu 0x%d %u type: %s\n",
-+					  va, ma, sz, perms, sve, (mmio) ? "mmio" : "memory" );
-+			ma = ~0; va = ~0; sz = 0; mmio = false;
-+cont:
-+			if (spte && (spte & (1ULL << 7))) {
-+				sz += SZ_2M;
-+				slot_start += SZ_2M;
-+			} else {
-+				sz += PAGE_SIZE;
-+				slot_start += PAGE_SIZE;
-+			}
-+		}
-+	}
-+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
-+	return cnt;
-+}
-+
-+/* Original pkvm walk */
-+unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
-+{
-+	struct shadow_vcpu_state *shadow_vcpu;
-+	struct pkvm_shadow_vm *vm;
-+	struct shadow_ept_desc *desc;
-+	struct pkvm_pgtable *sept;
-+	unsigned long phys;
-+	u64 gprot;
-+	int level;
-+
-+	if (vaddr % PAGE_SIZE)
-+		return ~0;
-+
-+	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
-+	if (!shadow_vcpu)
-+		BUG();
-+
-+	vm = shadow_vcpu->vm;
-+	desc = &vm->sept_desc;
-+	sept = &desc->sept;
-+
-+	pkvm_pgtable_lookup(sept, vaddr, &phys, &gprot, &level);
-+	return phys;
-+}
-+
-+static unsigned long virt_to_phys_user(struct mm_struct *mm, unsigned long virt) {
-+	struct vm_area_struct *vma;
-+	struct page *page;
-+	phys_addr_t phys = ~0;
-+
-+	/* FIXME: mmget(mm) */
-+	down_read(&mm->mmap_lock);
-+	vma = find_vma(mm, virt);
-+	if (!vma || virt < vma->vm_start)
-+		goto out;
-+
-+	page = follow_page(vma, virt, 0);
-+	if (!page || IS_ERR(page))
-+		goto out;
-+
-+	phys = page_to_phys(page);
-+out:
-+	up_read(&mm->mmap_lock);
-+	return phys;
-+}
-+
-+unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr)
-+{
-+	struct shadow_vcpu_state *shadow_vcpu;
-+	unsigned long addr;
-+	u64 offset = 0;
-+
-+	if (vaddr % PAGE_SIZE) {
-+		offset = vaddr & (PAGE_SIZE - 1);
-+		vaddr = vaddr & ~(PAGE_SIZE - 1);
-+	}
-+
-+	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
-+	if (!shadow_vcpu)
-+		BUG();
-+
-+	addr = virt_to_phys_user(shadow_vcpu->mm, vaddr);
-+	if (addr == ~0)
-+		return addr;
-+	return addr + offset;
-+}
-+
-+int __get_user_hyp64(struct kvm_vcpu *vcpu, u64 *ret, u64 *vaddr)
-+{
-+	u64 addr = (u64)vaddr;
-+	int r;
-+
-+	addr = (unsigned long)pkvm_user_to_phys(vcpu, addr);
-+	if (addr == ~0)
-+		return -ENOENT;
-+	addr = (unsigned long)pkvm_phys_to_virt(addr);
-+	if (addr == ~0)
-+		return -ENOENT;
-+	r = __copy_from_user(ret, (void __user *)addr, sizeof(u64));
-+	if (r)
-+		return -EFAULT;
-+	return 0;
-+}
-+
-+/*
-+ * FIXME: think about if additional security is needed for the hyp read|write
-+ * functions. Memslots are techically generated by the untrusted host, can
-+ * these be tricked to read|write illegal content?
-+ */
-+int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
-+			  gfn_t gfn, void *data, int offset, int len)
-+{
-+	unsigned long addr;
-+	int r;
-+
-+	addr = gfn_to_hva_memslot_prot(slot, gfn, NULL);
-+	if (kvm_is_error_hva(addr))
-+		return -EFAULT;
-+	addr = (unsigned long)pkvm_user_to_phys(vcpu, addr);
-+	if (addr == ~0)
-+		return -ENOENT;
-+	addr = (unsigned long)pkvm_phys_to_virt(addr);
-+	if (addr == ~0)
-+		return -ENOENT;
-+	r = __copy_from_user(data, (void __user *)addr + offset, len);
-+	if (r)
-+		return -EFAULT;
-+
-+	return 0;
-+}
-+
-+int __hyp_vcpu_write_guest_page(struct kvm_vcpu *vcpu,
-+				struct kvm_memory_slot *slot, gfn_t gfn,
-+				const void *data, int offset, int len)
-+{
-+	unsigned long addr;
-+	int r;
-+
-+	addr = gfn_to_hva_memslot(slot, gfn);
-+	if (kvm_is_error_hva(addr))
-+		return -EFAULT;
-+	addr = (unsigned long)pkvm_user_to_phys(vcpu, addr);
-+	if (addr == ~0) {
-+		pkvm_err("__hyp_vcpu_write_guest_page(): gfn 0x%llx\n", gfn);
-+		return -ENOENT;
-+	}
-+	addr = (unsigned long)pkvm_phys_to_virt(addr);
-+	if (addr == ~0)
-+		return -ENOENT;
-+	r = __copy_to_user((void __user *)addr + offset, data, len);
-+	if (r)
-+		return -EFAULT;
-+
-+	mark_page_dirty_in_slot(vcpu->kvm, slot, gfn);
-+	return 0;
-+}
-+
-+#endif
 +
 +/*
 + * Enter in the host context, exit in the host context.
@@ -22283,10 +22284,10 @@ index 000000000000..54ff84577e50
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmx.h b/arch/x86/kvm/vmx/pkvm/hyp/vmx.h
 new file mode 100644
-index 000000000000..40da630f3c95
+index 000000000000..fa3748dcf9e4
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmx.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,64 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -22296,6 +22297,7 @@ index 000000000000..40da630f3c95
 +#define __PKVM_VMX_H
 +
 +#include "pkvm_hyp.h"
++#include "capabilities.h"
 +
 +static inline u64 pkvm_construct_eptp(unsigned long root_hpa, int level)
 +{

@@ -1,0 +1,103 @@
+From b2f2e581cd394d2b342d5094e5d7ae39d8273e27 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
+Date: Thu, 19 Sep 2024 13:17:58 +0300
+Subject: [PATCH] KVM: nVMX: update VPPR on vmlaunch/vmresume
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Running certain hypervisors under KVM on VMX suffered L1 hangs after
+launching a nested guest. The external interrupts were not processed on
+vmenter due to stale VPPR, and L2 guest would be resumed without
+allowing L1 hypervisor to process the events.
+
+The patch ensures VPPR to be updated when checking for pending
+interrupts.
+
+Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
+Signed-off-by: Janne Karhunen <janne.karhunen@gmail.com>
+---
+ arch/x86/kvm/lapic.c      | 9 +++++----
+ arch/x86/kvm/lapic.h      | 1 +
+ arch/x86/kvm/vmx/nested.c | 5 +++--
+ 3 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/kvm/lapic.c b/arch/x86/kvm/lapic.c
+index 5bb481aefcbc..7747c7d672ea 100644
+--- a/arch/x86/kvm/lapic.c
++++ b/arch/x86/kvm/lapic.c
+@@ -952,7 +952,7 @@ static int apic_has_interrupt_for_ppr(struct kvm_lapic *apic, u32 ppr)
+ 	return highest_irr;
+ }
+ 
+-static bool __apic_update_ppr(struct kvm_lapic *apic, u32 *new_ppr)
++bool __kvm_apic_update_ppr(struct kvm_lapic *apic, u32 *new_ppr)
+ {
+ 	u32 tpr, isrv, ppr, old_ppr;
+ 	int isr;
+@@ -973,12 +973,13 @@ static bool __apic_update_ppr(struct kvm_lapic *apic, u32 *new_ppr)
+ 
+ 	return ppr < old_ppr;
+ }
++EXPORT_SYMBOL_GPL(__kvm_apic_update_ppr);
+ 
+ static void apic_update_ppr(struct kvm_lapic *apic)
+ {
+ 	u32 ppr;
+ 
+-	if (__apic_update_ppr(apic, &ppr) &&
++	if (__kvm_apic_update_ppr(apic, &ppr) &&
+ 	    apic_has_interrupt_for_ppr(apic, ppr) != -1)
+ 		kvm_make_request(KVM_REQ_EVENT, apic->vcpu);
+ }
+@@ -2895,7 +2896,7 @@ int kvm_apic_has_interrupt(struct kvm_vcpu *vcpu)
+ 	if (!kvm_apic_present(vcpu))
+ 		return -1;
+ 
+-	__apic_update_ppr(apic, &ppr);
++	__kvm_apic_update_ppr(apic, &ppr);
+ 	return apic_has_interrupt_for_ppr(apic, ppr);
+ }
+ EXPORT_SYMBOL_GPL(kvm_apic_has_interrupt);
+@@ -2954,7 +2955,7 @@ int kvm_get_apic_interrupt(struct kvm_vcpu *vcpu)
+ 		 * triggered KVM_REQ_EVENT already.
+ 		 */
+ 		apic_set_isr(vector, apic);
+-		__apic_update_ppr(apic, &ppr);
++		__kvm_apic_update_ppr(apic, &ppr);
+ 	}
+ 
+ 	return vector;
+diff --git a/arch/x86/kvm/lapic.h b/arch/x86/kvm/lapic.h
+index 7ef8ae73e82d..1d0bc13a6794 100644
+--- a/arch/x86/kvm/lapic.h
++++ b/arch/x86/kvm/lapic.h
+@@ -106,6 +106,7 @@ int kvm_apic_compare_prio(struct kvm_vcpu *vcpu1, struct kvm_vcpu *vcpu2);
+ void kvm_apic_clear_irr(struct kvm_vcpu *vcpu, int vec);
+ bool __kvm_apic_update_irr(u32 *pir, void *regs, int *max_irr);
+ bool kvm_apic_update_irr(struct kvm_vcpu *vcpu, u32 *pir, int *max_irr);
++bool __kvm_apic_update_ppr(struct kvm_lapic *apic, u32 *new_ppr);
+ void kvm_apic_update_ppr(struct kvm_vcpu *vcpu);
+ int kvm_apic_set_irq(struct kvm_vcpu *vcpu, struct kvm_lapic_irq *irq,
+ 		     struct dest_map *dest_map);
+diff --git a/arch/x86/kvm/vmx/nested.c b/arch/x86/kvm/vmx/nested.c
+index 2392a7ef254d..dacc92b150dd 100644
+--- a/arch/x86/kvm/vmx/nested.c
++++ b/arch/x86/kvm/vmx/nested.c
+@@ -3431,10 +3431,11 @@ static int nested_vmx_check_permission(struct kvm_vcpu *vcpu)
+ 
+ static u8 vmx_has_apicv_interrupt(struct kvm_vcpu *vcpu)
+ {
++	u32 vppr;
+ 	u8 rvi = vmx_get_rvi();
+-	u8 vppr = kvm_lapic_get_reg(vcpu->arch.apic, APIC_PROCPRI);
++	__kvm_apic_update_ppr(vcpu->arch.apic, &vppr);
+ 
+-	return ((rvi & 0xf0) > (vppr & 0xf0));
++	return ((rvi & 0xf0) > (u8) (vppr & 0xf0));
+ }
+ 
+ static void load_vmcs12_host_state(struct kvm_vcpu *vcpu,
+-- 
+2.44.1
+

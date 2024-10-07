@@ -1,4 +1,4 @@
-From a9c2e904e1723b5db9cd554f07cb83683b07afbc Mon Sep 17 00:00:00 2001
+From ad6afb71649dd456fea3c347865d4b2313dead6f Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -138,7 +138,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/pkvm_constants.c        |   26 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.h        |   21 +
  arch/x86/kvm/vmx/pkvm/pkvm_debugfs.c          |  204 +
- arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1301 ++++++
+ arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1307 ++++++
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  260 +-
@@ -177,7 +177,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 166 files changed, 24387 insertions(+), 832 deletions(-)
+ 166 files changed, 24393 insertions(+), 832 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -23276,10 +23276,10 @@ index 000000000000..c6cd7f3656b0
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/pkvm_host.c b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
 new file mode 100644
-index 000000000000..3eff34ab9846
+index 000000000000..fe4555cc4b31
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
-@@ -0,0 +1,1301 @@
+@@ -0,0 +1,1307 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -23303,7 +23303,11 @@ index 000000000000..3eff34ab9846
 +
 +extern void pkvm_init_debugfs(void);
 +extern bool kernel_in_guest_mode;
++
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +extern struct vmcs *host_vmcs;
++#endif
++
 +MODULE_LICENSE("GPL");
 +
 +struct pkvm_hyp *pkvm;
@@ -23797,7 +23801,9 @@ index 000000000000..3eff34ab9846
 +	if (!vmx->vmcs01.vmcs)
 +		return -ENOMEM;
 +
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +	host_vmcs = vmx->vmcs01.vmcs;
++#endif
 +	vmx->vmcs01.msr_bitmap = pkvm_sym(pkvm_early_alloc_page)();
 +	if (!vmx->vmcs01.msr_bitmap) {
 +		pr_err("%s: No page for msr_bitmap\n", __func__);
@@ -28628,5 +28634,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.44.1
 

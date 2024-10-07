@@ -182,7 +182,7 @@ SCREEN="-nographic"
 #
 [ -z "$MEM" ] && MEM=4096
 MACHINE="-machine q35 -device intel-iommu,aw-bits=48,device-iotlb=on"
-CPUFLAGS="+kvm-pv-enforce-cpuid,-vmx,-waitpkg,+ssse3,-tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
+CPUFLAGS="+kvm-pv-enforce-cpuid,-vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
 CPU="--accel kvm,kernel-irqchip=on -cpu host,$CPUFLAGS -smp 2"
 
 DRIVE="-drive file=$IMAGE,if=virtio,format=qcow2"

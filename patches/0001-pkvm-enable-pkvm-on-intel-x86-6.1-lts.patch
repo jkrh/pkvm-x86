@@ -1,4 +1,4 @@
-From ad6afb71649dd456fea3c347865d4b2313dead6f Mon Sep 17 00:00:00 2001
+From e512896835688129be6ad1ecd61510007db8027a Mon Sep 17 00:00:00 2001
 From: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Date: Thu, 28 Sep 2023 13:37:09 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -73,7 +73,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/mmu/mmu.c                        |   52 +-
  arch/x86/kvm/mmu/paging_tmpl.h                |   19 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
- arch/x86/kvm/mmu/tdp_mmu.c                    |   22 +-
+ arch/x86/kvm/mmu/tdp_mmu.c                    |   12 +
  arch/x86/kvm/svm/svm.c                        |    8 +-
  arch/x86/kvm/vmx/pkvm/.gitignore              |    1 +
  arch/x86/kvm/vmx/pkvm/Makefile                |   29 +
@@ -83,7 +83,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1182 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1211 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   75 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  467 +++
@@ -103,11 +103,11 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/lib/memcpy_64.S     |   26 +
  arch/x86/kvm/vmx/pkvm/hyp/lib/memset_64.S     |   24 +
  arch/x86/kvm/vmx/pkvm/hyp/lib/retpoline.S     |  115 +
- arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c       | 1023 +++++
+ arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c       | 1019 +++++
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 +
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
- arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  338 ++
+ arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  349 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
  arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1682 ++++++++
@@ -116,15 +116,15 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  805 ++++
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  155 +
- arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  470 +++
+ arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  478 +++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
- arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  202 +
+ arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  206 +
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 +
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.c             |  213 +
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  468 +++
+ arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  474 +++
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.h            |   11 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.c              |  146 +
  arch/x86/kvm/vmx/pkvm/hyp/vmsr.h              |   11 +
@@ -177,7 +177,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 166 files changed, 24393 insertions(+), 832 deletions(-)
+ 166 files changed, 24439 insertions(+), 830 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -6994,7 +6994,7 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..d1b64f480374
+index 000000000000..6c8e4a856157
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
 @@ -0,0 +1,289 @@
@@ -7250,7 +7250,7 @@ index 000000000000..d1b64f480374
 +bool in_hyp_mode(void);
 +unsigned long read_cr3(void);
 +unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr);
-+unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte);
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte, int *);
 +unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +int __hyp_read_guest_page(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot, gfn_t gfn,
@@ -7266,7 +7266,7 @@ index 000000000000..d1b64f480374
 +static __maybe_unused unsigned long read_cr3(void) { return ~0; }
 +static __maybe_unused unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr)
 +	{ return ~0; }
-+static __maybe_unused unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *)
++static __maybe_unused unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *, int *)
 +	{ return ~0; }
 +static __maybe_unused unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +	{ return ~0; }
@@ -8377,7 +8377,7 @@ index 7670c13ce251..c6d8508594a0 100644
  /*
   * The mask/shift to use for saving the original R/X bits when marking the PTE
 diff --git a/arch/x86/kvm/mmu/tdp_mmu.c b/arch/x86/kvm/mmu/tdp_mmu.c
-index c3b0f973375b..eaff8bd75bd7 100644
+index c3b0f973375b..248e102003f7 100644
 --- a/arch/x86/kvm/mmu/tdp_mmu.c
 +++ b/arch/x86/kvm/mmu/tdp_mmu.c
 @@ -9,6 +9,7 @@
@@ -8388,19 +8388,7 @@ index c3b0f973375b..eaff8bd75bd7 100644
  
  static bool __read_mostly tdp_mmu_enabled = true;
  module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0644);
-@@ -1037,8 +1038,10 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
- 	bool wrprot = false;
- 
- 	WARN_ON(sp->role.level != fault->goal_level);
--	if (unlikely(!fault->slot))
-+	if (unlikely(!fault->slot)) {
- 		new_spte = make_mmio_spte(vcpu, iter->gfn, ACC_ALL);
-+
-+	}
- 	else
- 		wrprot = make_spte(vcpu, sp, fault->slot, ACC_ALL, iter->gfn,
- 					 fault->pfn, iter->old_spte, fault->prefetch, true,
-@@ -1068,7 +1071,15 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
+@@ -1068,7 +1069,15 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
  		vcpu->stat.pf_mmio_spte_created++;
  		trace_mark_mmio_spte(rcu_dereference(iter->sptep), iter->gfn,
  				     new_spte);
@@ -8416,26 +8404,13 @@ index c3b0f973375b..eaff8bd75bd7 100644
  	} else {
  		trace_kvm_mmu_set_spte(iter->level, iter->gfn,
  				       rcu_dereference(iter->sptep));
-@@ -1132,7 +1143,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
- 	trace_kvm_mmu_spte_requested(fault);
- 
- 	rcu_read_lock();
--
-+/*
-+	pr_info("%s() gpa 0x%llx fault, pgd 0x%llx/0x%llx\n", __func__,
-+		fault->addr, mmu->root.hpa, (u64)phys_to_virt(mmu->root.hpa));
-+ */
- 	tdp_mmu_for_each_pte(iter, mmu, fault->gfn, fault->gfn + 1) {
- 		if (fault->nx_huge_page_workaround_enabled)
- 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
-@@ -1192,6 +1206,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+@@ -1192,6 +1201,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
  	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
  	rcu_read_unlock();
  
-+/*
 +	if (ret == RET_PF_EMULATE)
 +		pr_info("%s(): emulate gpa 0x%llx\n", __func__, fault->addr);
-+ */
++
  	return ret;
  }
  
@@ -8820,10 +8795,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..caf770adc946
+index 000000000000..57d5eabf50ae
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1182 @@
+@@ -0,0 +1,1211 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -8852,6 +8827,7 @@ index 000000000000..caf770adc946
 +#include "ptdev.h"
 +#include "io_emulate.h"
 +
++extern bool pkvm_host_init_complete;
 +static struct pkvm_pool host_ept_pool;
 +static struct pkvm_pgtable host_ept;
 +static struct pkvm_pgtable host_ept_notlbflush;
@@ -9216,11 +9192,18 @@ index 000000000000..caf770adc946
 +	unsigned long eptp = vmcs_read64(EPT_POINTER);
 +	unsigned long eipp, tmp;
 +	char num[8];
++	bool host = true;
 +	u64 spte;
++	int l;
++
++	/* FIXME: guest ept locks */
++
++	if (vcpu->kvm->pkvm.shadow_vm_handle != PKVM_HOST_HANDLE)
++		host = false;
 +
 +	/* Translate it from the shadow to report it */
-+	tmp = guest_ept_lookup(vcpu, eptp, gpa, &spte);
-+	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
++	tmp = guest_ept_lookup(vcpu, eptp, gpa, &spte, &l);
++	if (host) {
 +		if (tmp == ~0)
 +			pkvm_err("%s: 0x%lx is no longer in the host\n", __func__,
 +				 gpa);
@@ -9233,7 +9216,7 @@ index 000000000000..caf770adc946
 +	/* Make a linear mapping address of the IP for the hyp use */
 +	eipp = guest_virt_to_phys(vcpu, cr3, eip);
 +	if (vcpu->kvm->pkvm.shadow_vm_handle != PKVM_HOST_HANDLE)
-+		eipp = guest_ept_lookup(vcpu, eptp, eipp, &spte);
++		eipp = guest_ept_lookup(vcpu, eptp, eipp, &spte, &l);
 +	eip = (unsigned long)pkvm_phys_to_virt(eipp);
 +
 +	pkvm_err("%s: memory access violation by vm 0x%x for 0x%lx/0x%lx at 0x%lx/0x%lx\n",
@@ -9255,6 +9238,7 @@ index 000000000000..caf770adc946
 +	print_guest_maps(vcpu);
 +}
 +
++__attribute__((optimize(0)))
 +int handle_host_ept_violation(struct kvm_vcpu *vcpu, bool *skip_instruction)
 +{
 +	unsigned long hpa, gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
@@ -9262,15 +9246,17 @@ index 000000000000..caf770adc946
 +	bool is_memory = find_mem_range(gpa, &range);
 +	u64 prot = pkvm_mkstate(HOST_EPT_DEF_MMIO_PROT, PKVM_PAGE_OWNED);
 +	int ret, level;
++	u64 spte;
 +
 +	*skip_instruction = true;
 +
 +	pkvm_spin_lock(&_host_ept_lock);
 +
 +	/*
-+	 * Memory access violations -> -eperm immediately
++	 * Memory access violations -> -eperm immediately. Devices can be
++	 * attached to the host only during the host bootup.
 +	 */
-+	if (is_memory) {
++	if (is_memory || pkvm_host_init_complete) {
 +		ret = -EPERM;
 +		goto out;
 +	}
@@ -9278,7 +9264,8 @@ index 000000000000..caf770adc946
 +	/*
 +	 * Double fault handling
 +	 */
-+	pkvm_pgtable_lookup(&host_ept, gpa, &hpa, NULL, &level);
++	// pkvm_pgtable_lookup(&host_ept, gpa, &hpa, NULL, &level);
++	hpa = guest_ept_lookup(vcpu, host_ept.root_pa, gpa, &spte, &level);
 +	if (hpa != INVALID_ADDR) {
 +		ret = -EAGAIN;
 +		goto out;
@@ -9317,7 +9304,7 @@ index 000000000000..caf770adc946
 +	}
 +
 +	/*
-+	 * Glue it in the host as mmio
++	 * Glue it in the host as mmio. FIXME: 0x0
 +	 */
 +	ret = pkvm_host_ept_map(cur.start, cur.start, cur.end - cur.start + 1,
 +				1 << level, prot);
@@ -9913,6 +9900,15 @@ index 000000000000..caf770adc946
 +	return spte == SHADOW_EPT_MMIO_ENTRY;
 +}
 +
++static bool is_smm_gpa(struct pkvm_shadow_vm *vm, u64 gpa)
++{
++	if (vm->smm_start &&
++	   (gpa >= vm->smm_start) &&
++	   (gpa < (vm->smm_start + vm->smm_size)))
++		return true;
++	return false;
++}
++
 +enum sept_handle_ret
 +pkvm_handle_shadow_ept_violation(struct shadow_vcpu_state *shadow_vcpu, u64 l2_gpa, u64 exit_quali)
 +{
@@ -9957,6 +9953,14 @@ index 000000000000..caf770adc946
 +	 * by using the emulate.c.
 +	 */
 +	if (is_rsvd_spte(&ept_zero_check, rsvd_chk_gprot, level)) {
++		ret = PKVM_INJECT_EPT_MISC;
++		goto out;
++	}
++
++	/*
++	 * If the fault is in the guest smm block execute as MMIO
++	 */
++	if (is_smm_gpa(vm, l2_gpa)) {
 +		ret = PKVM_INJECT_EPT_MISC;
 +		goto out;
 +	}
@@ -14788,10 +14792,10 @@ index 000000000000..7758ec40fe7c
 +#endif /* CONFIG_RETHUNK */
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c b/arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c
 new file mode 100644
-index 000000000000..de4c33f2bb5e
+index 000000000000..ac5173fb2753
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c
-@@ -0,0 +1,1023 @@
+@@ -0,0 +1,1019 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -15138,8 +15142,6 @@ index 000000000000..de4c33f2bb5e
 +{
 +	int ret;
 +
-+	return 0;
-+
 +	ret = check_donation(donation);
 +	if (ret)
 +		return ret;
@@ -15203,10 +15205,9 @@ index 000000000000..de4c33f2bb5e
 +
 +	host_ept_unlock();
 +
-+/*
 +	pr_info("%s(): hpa 0x%llx sz 0x%llx ret %d\n",
 +		__func__, hpa, size, ret);
-+ */
++
 +	return ret;
 +}
 +
@@ -15239,10 +15240,9 @@ index 000000000000..de4c33f2bb5e
 +
 +	host_ept_unlock();
 +
-+/*
 +	pr_info("%s(): hpa 0x%llx gpa 0x%llx prot 0x%llx sz 0x%llx ret %d\n",
 +		__func__, hpa, gpa, prot, size, ret);
-+ */
++
 +	return ret;
 +}
 +
@@ -16454,10 +16454,10 @@ index 000000000000..ba6608ec6800
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 new file mode 100644
-index 000000000000..35df04fe8c5c
+index 000000000000..bad0287cd09d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,349 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -16575,7 +16575,7 @@ index 000000000000..35df04fe8c5c
 +	return (pte & PAGE_PFN_MASK) + (virt_addr & 0xFFF);
 +}
 +
-+unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte)
++unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte, int *l)
 +{
 +	u64 pml4i = (gpa >> 39) & 0x1FF;
 +	u64 pdpti = (gpa >> 30) & 0x1FF;
@@ -16587,28 +16587,39 @@ index 000000000000..35df04fe8c5c
 +	if ((paw != 0) && (paw != EPTP_PHYS_ADDR_WIDTH_48BIT))
 +		BUG();
 +
++	if (l)
++		*l = 4;
 +	pml4e = read_guest_phys(vcpu, (eptp & PAGE_PFN_MASK) + pml4i * sizeof(u64));
 +	if ((pml4e == ~0) || !(pml4e & EPT_ENTRY_READ_MASK))
 +		return ~0;
++	if (l)
++		*l = 3;
 +	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64));
 +	if ((pdpte == ~0) || !(pdpte & EPT_ENTRY_READ_MASK))
 +		return ~0;
 +	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK) {
-+		*spte = pdpte;
++		if (spte)
++			*spte = pdpte;
 +		return (pdpte & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_1GB_MASK);
 +	}
++	if (l)
++		*l = 2;
 +	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64));
 +	if ((pde == ~0) || !(pde & EPT_ENTRY_READ_MASK))
 +		return ~0;
 +	if (pde & EPT_ENTRY_LARGE_PAGE_MASK) {
-+		*spte = pde;
++		if (spte)
++			*spte = pde;
 +		return (pde & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_2MB_MASK);
 +	}
++	if (l)
++		*l = 1;
 +	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64));
 +	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
 +		return ~0;
 +
-+	*spte = pte;
++	if (spte)
++		*spte = pte;
 +	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
 +}
 +
@@ -16618,7 +16629,7 @@ index 000000000000..35df04fe8c5c
 +	struct kvm_memory_slot *slot;
 +	u64 slot_start = ~0UL, slot_end = ~0UL;
 +	u64 eptp, spte, tmp, va, ma, sz, mmio;
-+	int bkt, idx, cnt = 0, perms, sve;
++	int bkt, idx, cnt = 0, perms, sve, l;
 +
 +	/* FIXME: these PKVM_HOST_HANDLEs are kernel writable */
 +	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE)
@@ -16645,7 +16656,7 @@ index 000000000000..35df04fe8c5c
 +		ma = ~0; va = ~0; sz = 0; mmio = false; perms = 0;
 +
 +		while (slot_start < slot_end) {
-+			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte);
++			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte, &l);
 +			if (tmp != ~0) {
 +				if (ma == ~0) {
 +					ma = tmp;
@@ -20180,10 +20191,10 @@ index 000000000000..85a2f74c5fe4
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c b/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c
 new file mode 100644
-index 000000000000..9bc8da3ce8e2
+index 000000000000..7e994954d4d9
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,478 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -20199,6 +20210,7 @@ index 000000000000..9bc8da3ce8e2
 +#include "ptdev.h"
 +
 +struct pkvm_hyp *pkvm_hyp;
++bool pkvm_host_init_complete = false;
 +
 +#define MAX_SHADOW_VMS	(PKVM_MAX_NORMAL_VM_NUM + PKVM_MAX_SECURE_VM_NUM)
 +#define HANDLE_OFFSET 1
@@ -20287,6 +20299,8 @@ index 000000000000..9bc8da3ce8e2
 +	struct pkvm_shadow_vm *vm;
 +	struct x86_exception e;
 +
++	pkvm_host_init_complete = true;
++
 +	if (!PAGE_ALIGNED(shadow_pa) ||
 +		!PAGE_ALIGNED(shadow_size) ||
 +		(shadow_size != PAGE_ALIGN(sizeof(struct pkvm_shadow_vm)
@@ -20308,6 +20322,11 @@ index 000000000000..9bc8da3ce8e2
 +	vm->host_kvm_va = kvm_va;
 +	vm->shadow_size = shadow_size;
 +	vm->vm_type = vm_type;
++
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
++	vm->smm_start = 0xa0000;
++	vm->smm_size = 0x20000;
++#endif
 +
 +	if (pkvm_pgstate_pgt_init(vm))
 +		goto undonate;
@@ -20672,10 +20691,10 @@ index 000000000000..af81ce58c72f
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
 new file mode 100644
-index 000000000000..1ab5198c67a1
+index 000000000000..e50715e2238b
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,206 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -20833,6 +20852,10 @@ index 000000000000..1ab5198c67a1
 +
 +	/* link the passthrough devices of a protected VM */
 +	struct list_head ptdev_head;
++
++	/* Emulated SMM region */
++	u64 smm_start;
++	u64 smm_size;
 +
 +	/* The vm_type to indicate if this is a protected VM */
 +	unsigned long vm_type;
@@ -21499,10 +21522,10 @@ index 000000000000..970d2e770844
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
 new file mode 100644
-index 000000000000..7e5e51be422e
+index 000000000000..6164807c316f
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
-@@ -0,0 +1,468 @@
+@@ -0,0 +1,474 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -21799,7 +21822,7 @@ index 000000000000..7e5e51be422e
 +	struct vcpu_vmx *vmx = to_vmx(vcpu);
 +	struct pkvm_host_vcpu *pkvm_hvcpu;
 +	struct shadow_vcpu_state *cur_shadow_vcpu;
-+	int launch = 1;
++	int launch = 1, ret;
 +
 +	vcpu->mode = IN_GUEST_MODE;
 +
@@ -21933,16 +21956,22 @@ index 000000000000..7e5e51be422e
 +				skip_instruction = true;
 +				break;
 +			case EXIT_REASON_EPT_VIOLATION:
-+				if (handle_host_ept_violation(vcpu, &skip_instruction))
-+					pkvm_err("pkvm: handle host ept violation failed");
++				ret = handle_host_ept_violation(vcpu, &skip_instruction);
++				if (ret)
++					pkvm_err("%s: handle_host_ept_violation 0x%llx: %d\n",
++						 __func__, vmcs_read64(GUEST_PHYSICAL_ADDRESS),
++						 ret);
 +				break;
 +			case EXIT_REASON_IO_INSTRUCTION:
-+				if (handle_host_pio(vcpu))
-+					pkvm_err("pkvm: handle host port I/O access failed.");
++				ret = handle_host_pio(vcpu);
++				if (ret)
++					pkvm_err("%s: handle_host_pio: %d\n", __func__,
++						 ret);
 +				skip_instruction = true;
 +				break;
 +			default:
-+				pkvm_dbg("CPU%d: Unsupported vmexit reason 0x%x.\n", vcpu->cpu, vmx->exit_reason.full);
++				pkvm_dbg("CPU%d: Unsupported vmexit reason 0x%x.\n",
++					 vcpu->cpu, vmx->exit_reason.full);
 +				skip_instruction = true;
 +				break;
 +			}
@@ -28447,7 +28476,7 @@ index d40f0b30b534..83a61c55cf0f 100644
  }
 diff --git a/virt/kvm/pkvm/pkvm.c b/virt/kvm/pkvm/pkvm.c
 new file mode 100644
-index 000000000000..274e20830317
+index 000000000000..db7968703ffd
 --- /dev/null
 +++ b/virt/kvm/pkvm/pkvm.c
 @@ -0,0 +1,87 @@
@@ -28496,7 +28525,7 @@ index 000000000000..274e20830317
 +
 +		_pkvm_memory[*pkvm_memblock_nr_ptr] = *reg;
 +		(*pkvm_memblock_nr_ptr)++;
-+		kvm_info("registered 0x%llx sz %llu from the model\n",
++		kvm_info("pkvm reserved 0x%llx sz %llu from the model\n",
 +			 reg->base, reg->size);
 +	}
 +	sort_memblock_regions();
@@ -28634,5 +28663,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.44.1
+2.34.1
 

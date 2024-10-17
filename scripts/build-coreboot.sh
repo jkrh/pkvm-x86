@@ -31,9 +31,15 @@ CONFIG_LINUX_COMMAND_LINE="root=/dev/vda1 swiotlb=force mem=8G nokaslr ignore_lo
 else
 CONFIG_LINUX_COMMAND_LINE="root=/dev/vda1 swiotlb=force mem=3G nokaslr ignore_loglevel console=ttyS0 rw"
 fi
+rm -rf .config
 make KBUILD_DEFCONFIG=$BASEDIR/scripts/q35_defconfig defconfig
 sed -i "/CONFIG_PAYLOAD_FILE=/c\CONFIG_PAYLOAD_FILE=$CONFIG_PAYLOAD_FILE" .config
 sed -i "/CONFIG_LINUX_COMMAND_LINE=/c\CONFIG_LINUX_COMMAND_LINE=\"$CONFIG_LINUX_COMMAND_LINE\"" .config
+if [ $TGT = "guest" ]; then
+sed -i "/CONFIG_PROTECTED_GUEST=/c\CONFIG_PROTECTED_GUEST=y" .config
+else
+sed -i "/CONFIG_PROTECTED_GUEST=/c\CONFIG_PROTECTED_GUEST=n" .config
+fi
 make CPUS=$(nproc)
 
 cp build/coreboot.rom $BASEDIR/build/coreboot-$TGT.rom

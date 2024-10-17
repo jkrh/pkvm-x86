@@ -1,3 +1,5 @@
+export CC=gcc-12
+
 export BASE_DIR := $(PWD)
 export OBJDIR := $(BASE_DIR)/.objs
 export CORE_DIR := $(BASE_DIR)/core

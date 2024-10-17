@@ -12,4 +12,4 @@ copy_kernel()
 copy_kernel
 
 cd $BASEDIR/build/linux
-make -j$NJOBS nixos_guest_defconfig bzImage modules
+make CC=$CC -j$NJOBS nixos_guest_defconfig bzImage modules

@@ -34,10 +34,11 @@ poorman:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
 kernel:
-	$(MAKE) -C$(KERNEL_DIR) -j$(NJOBS) nixos_defconfig bzImage modules
+	@cp scripts/nixos_* $(KERNEL_DIR)/arch/x86/configs/
+	$(MAKE) CC=$(CC) -C$(KERNEL_DIR) -j$(NJOBS) nixos_defconfig bzImage modules
 
 kernel-clean:
-	$(MAKE) -C$(KERNEL_DIR) -j$(NJOBS) mrproper
+	$(MAKE) CC=$(CC) -C$(KERNEL_DIR) -j$(NJOBS) mrproper
 
 kernel-distclean:
 	cd $(KERNEL_DIR); git xlean -xfd

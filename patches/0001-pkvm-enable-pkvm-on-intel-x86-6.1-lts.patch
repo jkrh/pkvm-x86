@@ -1,4 +1,4 @@
-From 12ff6210142f117d939a7e373099b83670da01b7 Mon Sep 17 00:00:00 2001
+From 31ed0cc659e523343a742473d0df2d32559948a3 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 17 Oct 2024 15:02:02 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -100,7 +100,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 +++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
- arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  419 +++
+ arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  440 +++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
  arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1682 ++++++++++++
@@ -170,7 +170,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 160 files changed, 19451 insertions(+), 830 deletions(-)
+ 160 files changed, 19472 insertions(+), 830 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -11277,10 +11277,10 @@ index 000000000000..ba6608ec6800
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 new file mode 100644
-index 000000000000..a3f1896ae3cc
+index 000000000000..1a963f8c4b2d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,440 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -11421,31 +11421,30 @@ index 000000000000..a3f1896ae3cc
 +	if (l)
 +		*l = 3;
 +	pdpte = read_guest_phys(vcpu, (pml4e & PAGE_PFN_MASK) + pdpti * sizeof(u64), 1);
++	if (spte)
++		*spte = pdpte;
 +	if ((pdpte == ~0) || !(pdpte & EPT_ENTRY_READ_MASK))
 +		return ~0;
 +	if (pdpte & EPT_ENTRY_LARGE_PAGE_MASK) {
-+		if (spte)
-+			*spte = pdpte;
 +		return (pdpte & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_1GB_MASK);
 +	}
 +	if (l)
 +		*l = 2;
 +	pde = read_guest_phys(vcpu, (pdpte & PAGE_PFN_MASK) + pdi * sizeof(u64), 1);
++	if (spte)
++		*spte = pde;
 +	if ((pde == ~0) || !(pde & EPT_ENTRY_READ_MASK))
 +		return ~0;
 +	if (pde & EPT_ENTRY_LARGE_PAGE_MASK) {
-+		if (spte)
-+			*spte = pde;
 +		return (pde & PAGE_PFN_MASK) + (gpa & PAGE_SIZE_2MB_MASK);
 +	}
 +	if (l)
 +		*l = 1;
 +	pte = read_guest_phys(vcpu, (pde & PAGE_PFN_MASK) + pti * sizeof(u64), 1);
-+	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
-+		return ~0;
-+
 +	if (spte)
 +		*spte = pte;
++	if ((pte == ~0) || !(pte & EPT_ENTRY_READ_MASK))
++		return ~0;
 +	return (pte & PAGE_PFN_MASK) + (gpa & 0xFFF);
 +}
 +
@@ -11495,8 +11494,8 @@ index 000000000000..a3f1896ae3cc
 +	struct kvm_memory_slot *slot;
 +	struct pkvm_shadow_vm *vm;
 +	u64 slot_start = ~0UL, slot_end = ~0UL;
-+	u64 eptp, spte, tmp, va, ma, sz, mmio;
-+	int bkt, idx, cnt = 0, perms, sve, l;
++	u64 eptp, spte, tmp, va, ma, sz, mmio, sve;
++	int bkt, idx, cnt = 0, perms, l;
 +
 +	if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE) {
 +		eptp = pkvm_hyp->host_vm.ept->root_pa;
@@ -11540,7 +11539,24 @@ index 000000000000..a3f1896ae3cc
 +
 +		while (slot_start < slot_end) {
 +			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte, &l);
++			/* Log regions that are mapped */
 +			if (tmp != ~0) {
++				cnt += 1;
++				switch (l) {
++				case 3:
++					sz += SZ_1G;
++					break;
++				case 2:
++					sz += SZ_2M;
++					break;
++				case 1:
++					sz += PAGE_SIZE;
++					break;
++				default:
++					BUG();
++					break;
++				}
++				/* Record mapping start */
 +				if (ma == ~0) {
 +					ma = tmp;
 +					va = slot_start;
@@ -11551,33 +11567,38 @@ index 000000000000..a3f1896ae3cc
 +					perms = spte & 0x7;
 +					sve = spte & SUPPRESS_VE;
 +				}
-+				cnt++;
++				/*
++				 * If anything changed, print it.
++				 *
++				 * FIXME: if 2+ things change, this will report
++				 * the latter wrong.
++				 */
 +				if (perms != (spte & 0x7))
 +					goto print;
-+				if (sve != (spte & SUPPRESS_VE))
-+					goto print;
 +				if (mmio != is_mmio_spte(spte))
++					goto print;
++				if (sve != (spte & SUPPRESS_VE))
 +					goto print;
 +				goto cont;
 +			} else
 +				spte = 0;
 +print:
-+			if (ma != ~0)
-+				pkvm_info("0x%016llx -> 0x%016llx %llu 0x%d %u type: %s\n",
-+					  va, ma, sz, perms, sve, (mmio) ? "mmio" : "memory" );
-+			ma = ~0; va = ~0; sz = 0; mmio = false;
++			if (ma != ~0) {
++				pkvm_info("0x%016llx -> 0x%016llx %llu 0x%d %s %s\n",
++					  va, ma, sz, perms, (sve) ? "SVE" : "VE",
++					  (mmio) ? "MMIO" : "MEMORY" );
++				ma = ~0; va = ~0; sz = 0; mmio = false; sve = 0;
++			}
++
 +cont:
 +			switch(l) {
 +			case 3:
-+				sz += SZ_1G;
 +				slot_start += SZ_1G;
 +				break;
 +			case 2:
-+				sz += SZ_2M;
 +				slot_start += SZ_2M;
 +				break;
 +			case 1:
-+				sz += PAGE_SIZE;
 +				slot_start += PAGE_SIZE;
 +				break;
 +			default:

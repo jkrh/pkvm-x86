@@ -1,4 +1,4 @@
-From 1374ba20c2e85883efe5069a389aae19307f1c80 Mon Sep 17 00:00:00 2001
+From 841236d817fdf16f26e772946d6a7c114a8d787a Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 17 Oct 2024 15:02:02 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -100,7 +100,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 +++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
- arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  448 ++++
+ arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  449 ++++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
  arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1682 ++++++++++++
@@ -170,7 +170,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 160 files changed, 19425 insertions(+), 830 deletions(-)
+ 160 files changed, 19426 insertions(+), 830 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -11272,10 +11272,10 @@ index 000000000000..ba6608ec6800
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 new file mode 100644
-index 000000000000..c9cfa049b653
+index 000000000000..482db517d3d3
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
-@@ -0,0 +1,448 @@
+@@ -0,0 +1,449 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -11502,16 +11502,19 @@ index 000000000000..c9cfa049b653
 +
 +	switch (table) {
 +	case d_s:
-+		pkvm_info("VCPU 0x%llx shadow mappings:\n", (u64)vcpu);
 +		eptp = vm->sept_desc.shadow_eptp;
++		pkvm_info("VCPU 0x%llx EPTP 0x%llx shadow mappings:\n",
++			 (u64)vcpu, eptp);
 +		break;
 +	case d_k:
-+		pkvm_info("VCPU 0x%llx kvm mappings:\n", (u64)vcpu);
 +		eptp = vcpu->arch.mmu->root.hpa;
++		pkvm_info("VCPU 0x%llx EPTP 0x%llx kvm mappings:\n",
++			 (u64)vcpu, eptp);
 +		break;
 +	case d_p:
-+		pkvm_info("VCPU 0x%llx pgstate mappings:\n", (u64)vcpu);
 +		eptp = vm->pgstate_pgt.root_pa;
++		pkvm_info("VCPU 0x%llx EPTP 0x%llx pgstate mappings:\n",
++			 (u64)vcpu, eptp);
 +		break;
 +	default:
 +		return -EINVAL;
@@ -11538,7 +11541,7 @@ index 000000000000..c9cfa049b653
 +		slot_start = slot->base_gfn << PAGE_SHIFT;
 +		slot_end = slot_start + (slot->npages * PAGE_SIZE);
 +		ma = ~0; va = ~0; sz = 0; mmio = false; perms = 0;
-+		pr_info("Guest slot 0x%llx - 0x%llx\n", slot_start, slot_end);
++		pr_info("Guest slot 0x%llx - 0x%llx\n", slot_start, slot_end - 1);
 +
 +		while (slot_start < slot_end) {
 +			tmp = guest_ept_lookup(vcpu, eptp, slot_start, &spte, &l);
@@ -11572,9 +11575,6 @@ index 000000000000..c9cfa049b653
 +				}
 +				/*
 +				 * If anything changed, print it.
-+				 *
-+				 * FIXME: if 2+ things change, this will report
-+				 * the latter wrong.
 +				 */
 +				if (perms != (spte & 0x7))
 +					goto print;
@@ -11605,7 +11605,8 @@ index 000000000000..c9cfa049b653
 +				slot_start += PAGE_SIZE;
 +				break;
 +			default:
-+				BUG();
++				pkvm_info("%s: unable to walk given region\n", __func__);
++				slot_start = ULONG_MAX;
 +				break;
 +			}
 +		}

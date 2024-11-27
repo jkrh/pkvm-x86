@@ -1,4 +1,4 @@
-From 0830325fd1a3eb8bda8a5be9009d934a9b6b6487 Mon Sep 17 00:00:00 2001
+From 1ffbe3ef74309d97585fc9b65e0a1d9d63f83be7 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 17 Oct 2024 15:02:02 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -96,7 +96,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/lib/memcpy_64.S     |   26 +
  arch/x86/kvm/vmx/pkvm/hyp/lib/memset_64.S     |   24 +
  arch/x86/kvm/vmx/pkvm/hyp/lib/retpoline.S     |  115 +
- arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c       | 1041 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c       | 1042 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 +++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
@@ -115,6 +115,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 ++
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.c             |  213 ++
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
+ arch/x86/kvm/vmx/pkvm/hyp/q35.h               |   22 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  497 ++++
@@ -171,7 +172,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 161 files changed, 19448 insertions(+), 830 deletions(-)
+ 162 files changed, 19471 insertions(+), 830 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -230,6 +231,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/ptdev.c
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/ptdev.h
+ create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/q35.h
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/trace.c
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/trace.h
  create mode 100644 arch/x86/kvm/vmx/pkvm/hyp/vmexit.c
@@ -9561,10 +9563,10 @@ index 000000000000..7758ec40fe7c
 +#endif /* CONFIG_RETHUNK */
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c b/arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c
 new file mode 100644
-index 000000000000..c083258b67db
+index 000000000000..a39491cad6cc
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mem_protect.c
-@@ -0,0 +1,1041 @@
+@@ -0,0 +1,1042 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -9897,17 +9899,18 @@ index 000000000000..c083258b67db
 +	return ret;
 +}
 +
-+#define LAPIC_DEFAULT_BASE 0xfee00000UL
++#include "q35.h"
 +
 +static int check_donation_whitelist(const struct pkvm_mem_transition *donation)
 +{
-+	const u64 q35_dma_whitelist[] = { LAPIC_DEFAULT_BASE, 0x0 };
 +	int i = 0;
 +
-+	while (q35_dma_whitelist[i] != 0x0) {
-+		if (donation->completer.guest.addr == q35_dma_whitelist[i]) {
-+			pr_info("%s(): allowing guest dma at 0x%llx\n", __func__,
-+				q35_dma_whitelist[i]);
++	while (dma_memmap[i].len != 0x0) {
++		if ((donation->completer.guest.addr >= dma_memmap[i].addr) &&
++		    (donation->completer.guest.addr < (dma_memmap[i].addr +
++						       dma_memmap[i].len))) {
++			pr_info("%s(): allowing guest dma at 0x%llx\n",
++				__func__, donation->completer.guest.addr);
 +			return 1;
 +		}
 +		i++;
@@ -16300,6 +16303,34 @@ index 000000000000..bfefcf7346c1
 +	return cmpxchg(&ptdev->shadow_vm_handle, 0, 0) != 0;
 +}
 +#endif
+diff --git a/arch/x86/kvm/vmx/pkvm/hyp/q35.h b/arch/x86/kvm/vmx/pkvm/hyp/q35.h
+new file mode 100644
+index 000000000000..78d923e3a37b
+--- /dev/null
++++ b/arch/x86/kvm/vmx/pkvm/hyp/q35.h
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0
++ */
++
++#define LAPIC_DEFAULT_BASE 0xfee00000UL
++#define LAPIC_SZ 0x1000UL
++#define VGA_LOWMEM1 0xa0000UL
++#define VGA_LOWMEM_SZ1 0x20000UL
++#define VRAM_ADDR 0xfd0000000UL
++#define VRAM_SZ 0x1000000UL
++
++typedef struct {
++	uint64_t addr;
++	uint64_t len;
++} dma_region_t;
++
++static const dma_region_t dma_memmap[] = {
++	{ LAPIC_DEFAULT_BASE, LAPIC_SZ },
++	{ VGA_LOWMEM1, VGA_LOWMEM_SZ1 },
++	{ VRAM_ADDR, VRAM_SZ },
++	{ 0, 0 },
++};
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/trace.c b/arch/x86/kvm/vmx/pkvm/hyp/trace.c
 new file mode 100644
 index 000000000000..c4ef27e4d1c1

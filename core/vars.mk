@@ -1,4 +1,6 @@
-export CC=gcc-12
+ifeq ($(shell echo -e "12.3.0\n$$($${CC} --version |grep gcc |awk '{print $$3}')" | awk NF | sort -VC; echo $$?), 1)
+$(error "Use gcc 12.3.1 or newer, see GCC bug: 103979.")
+endif
 
 export BASE_DIR := $(PWD)
 export OBJDIR := $(BASE_DIR)/.objs

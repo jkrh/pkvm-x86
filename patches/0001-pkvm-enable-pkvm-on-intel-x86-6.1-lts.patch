@@ -1,4 +1,4 @@
-From 0e27701385572cef9942ba3be259d2d53797ac61 Mon Sep 17 00:00:00 2001
+From c78828789bb0e2eaede8f622b465ff86e9fff40d Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 17 Oct 2024 15:02:02 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -148,9 +148,10 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  drivers/iommu/intel/debugfs.c                 |   14 +-
  drivers/iommu/intel/dmar.c                    |  108 +-
  drivers/iommu/intel/iommu.c                   |   60 +-
- drivers/iommu/intel/iommu.h                   |   18 +-
+ drivers/iommu/intel/iommu.h                   |   24 +-
  drivers/iommu/intel/irq_remapping.c           |   24 +-
  drivers/iommu/intel/pasid.c                   |    4 +-
+ drivers/iommu/intel/perfmon.c                 |   14 +-
  drivers/iommu/intel/svm.c                     |   34 +-
  fs/coredump.c                                 |    3 +
  include/asm-generic/vmlinux.lds.h             |   16 +
@@ -172,7 +173,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 162 files changed, 19473 insertions(+), 830 deletions(-)
+ 163 files changed, 19482 insertions(+), 841 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -21441,7 +21442,7 @@ index 7b9502c30fe9..657bca10fd36 100644
  		       DMAR_VER_MAJOR(ver), DMAR_VER_MINOR(ver));
  }
 diff --git a/drivers/iommu/intel/iommu.h b/drivers/iommu/intel/iommu.h
-index c1348bedab3b..a88ac0f81786 100644
+index c1348bedab3b..05b8ea624bd2 100644
 --- a/drivers/iommu/intel/iommu.h
 +++ b/drivers/iommu/intel/iommu.h
 @@ -140,10 +140,18 @@
@@ -21476,6 +21477,19 @@ index c1348bedab3b..a88ac0f81786 100644
  		if (cond)						\
  			break;						\
  		if (DMAR_OPERATION_TIMEOUT < (get_cycles() - start_time))\
+@@ -592,9 +600,9 @@ struct iommu_pmu {
+ 	u32			cntr_stride;	/* Counter Stride */
+ 	u32			filter;		/* Bitmask of filter support */
+ 	void __iomem		*base;		/* the PerfMon base address */
+-	void __iomem		*cfg_reg;	/* counter configuration base address */
+-	void __iomem		*cntr_reg;	/* counter 0 address*/
+-	void __iomem		*overflow;	/* overflow status register */
++	u32			cfg_reg;	/* counter configuration register offset */
++	u32			cntr_reg;	/* counter 0 register offset */
++	u32			overflow;	/* overflow status register offset */
+ 
+ 	u64			*evcap;		/* Indicates all supported events */
+ 	u32			**cntr_evcap;	/* Supported events of each counter. */
 diff --git a/drivers/iommu/intel/irq_remapping.c b/drivers/iommu/intel/irq_remapping.c
 index 5962bb5027d0..65cff7667ee4 100644
 --- a/drivers/iommu/intel/irq_remapping.c
@@ -21578,6 +21592,61 @@ index 32432d82d774..73b083826142 100644
  		    VCMD_CMD_OPERAND(pasid) | VCMD_CMD_FREE);
  	IOMMU_WAIT_OP(iommu, DMAR_VCRSP_REG, dmar_readq,
  		      !(res & VCMD_VRSP_IP), res);
+diff --git a/drivers/iommu/intel/perfmon.c b/drivers/iommu/intel/perfmon.c
+index db5791a54455..e13d0925238e 100644
+--- a/drivers/iommu/intel/perfmon.c
++++ b/drivers/iommu/intel/perfmon.c
+@@ -10,12 +10,10 @@
+ #include "iommu.h"
+ #include "perfmon.h"
+ 
+-static inline void __iomem *
++static inline u32
+ get_perf_reg_address(struct intel_iommu *iommu, u32 offset)
+ {
+-	u32 off = dmar_readl(iommu->reg + offset);
+-
+-	return iommu->reg + off;
++	return dmar_readl(iommu, offset);
+ }
+ 
+ int alloc_iommu_pmu(struct intel_iommu *iommu)
+@@ -32,7 +30,7 @@ int alloc_iommu_pmu(struct intel_iommu *iommu)
+ 	if (!cap_ecmds(iommu->cap))
+ 		return -ENODEV;
+ 
+-	perfcap = dmar_readq(iommu->reg + DMAR_PERFCAP_REG);
++	perfcap = dmar_readq(iommu, DMAR_PERFCAP_REG);
+ 	/* The performance monitoring is not supported. */
+ 	if (!perfcap)
+ 		return -ENODEV;
+@@ -65,7 +63,7 @@ int alloc_iommu_pmu(struct intel_iommu *iommu)
+ 	for (i = 0; i < iommu_pmu->num_eg; i++) {
+ 		u64 pcap;
+ 
+-		pcap = dmar_readq(iommu->reg + DMAR_PERFEVNTCAP_REG +
++		pcap = dmar_readq(iommu, DMAR_PERFEVNTCAP_REG +
+ 				  i * IOMMU_PMU_CAP_REGS_STEP);
+ 		iommu_pmu->evcap[i] = pecap_es(pcap);
+ 	}
+@@ -99,7 +97,7 @@ int alloc_iommu_pmu(struct intel_iommu *iommu)
+ 	 * Width.
+ 	 */
+ 	for (i = 0; i < iommu_pmu->num_cntr; i++) {
+-		cap = dmar_readl(iommu_pmu->cfg_reg +
++		cap = dmar_readl(iommu, iommu_pmu->cfg_reg +
+ 				 i * IOMMU_PMU_CFG_OFFSET +
+ 				 IOMMU_PMU_CFG_CNTRCAP_OFFSET);
+ 		if (!iommu_cntrcap_pcc(cap))
+@@ -123,7 +121,7 @@ int alloc_iommu_pmu(struct intel_iommu *iommu)
+ 
+ 		/* Override with per-counter event capabilities */
+ 		for (j = 0; j < iommu_cntrcap_egcnt(cap); j++) {
+-			cap = dmar_readl(iommu_pmu->cfg_reg + i * IOMMU_PMU_CFG_OFFSET +
++			cap = dmar_readl(iommu, iommu_pmu->cfg_reg + i * IOMMU_PMU_CFG_OFFSET +
+ 					 IOMMU_PMU_CFG_CNTREVCAP_OFFSET +
+ 					 (j * IOMMU_PMU_OFF_REGS_STEP));
+ 			iommu_pmu->cntr_evcap[i][iommu_event_group(cap)] = iommu_event_select(cap);
 diff --git a/drivers/iommu/intel/svm.c b/drivers/iommu/intel/svm.c
 index cb862ab96873..b806aa69fdc8 100644
 --- a/drivers/iommu/intel/svm.c

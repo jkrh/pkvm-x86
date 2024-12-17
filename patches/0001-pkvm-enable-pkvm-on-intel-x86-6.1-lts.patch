@@ -1,4 +1,4 @@
-From 255a90ebe7bf98091a833e72fa4d2ffc83cad47a Mon Sep 17 00:00:00 2001
+From a43119248c594bb7195e1d8fb379a8c037c4ba04 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 17 Oct 2024 15:02:02 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -2857,7 +2857,7 @@ index 796e2f9e8761..9b4b4f93ef62 100644
  
  static int __init parse_no_kvmapf(char *arg)
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
-index 18a034613d94..df96ebbfde85 100644
+index 18a034613d94..a9283890516f 100644
 --- a/arch/x86/kernel/setup.c
 +++ b/arch/x86/kernel/setup.c
 @@ -37,6 +37,7 @@
@@ -2879,15 +2879,15 @@ index 18a034613d94..df96ebbfde85 100644
  	if (boot_cpu_has(X86_FEATURE_NX))
  		__supported_pte_mask |= _PAGE_NX;
  	else
-@@ -1191,6 +1196,8 @@ void __init setup_arch(char **cmdline_p)
+@@ -1328,6 +1333,8 @@ void __init setup_arch(char **cmdline_p)
+ #endif
  
- 	memblock_set_current_limit(get_max_mapped());
- 
-+	pkvm_reserve();
+ 	unwind_init();
 +
- 	/*
- 	 * NOTE: On x86-32, only from this point on, fixmaps are ready for use.
- 	 */
++	pkvm_reserve();
+ }
+ 
+ #ifdef CONFIG_X86_32
 diff --git a/arch/x86/kernel/traps.c b/arch/x86/kernel/traps.c
 index c0a5a4f225d9..f026ffb62de6 100644
 --- a/arch/x86/kernel/traps.c

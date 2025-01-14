@@ -1,50 +1,17 @@
-From bd8acc561d018b7099bc131fac52e719599c7522 Mon Sep 17 00:00:00 2001
+From d45393b132f48e12f04786ccdc866481e73b100f Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 14 Oct 2024 11:31:33 +0300
 Subject: [PATCH] base: introduce protected vm guest support
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- src/arch/x86/memcpy.c                        | 17 +++++++++++++++++
- src/mainboard/emulation/qemu-i440fx/fw_cfg.c |  4 ++++
- src/security/Kconfig                         |  6 ++++++
- src/southbridge/intel/common/hypcall.h       | 18 ++++++++++++++++++
- src/southbridge/intel/common/smi.c           |  1 +
- 5 files changed, 46 insertions(+)
- create mode 100644 src/southbridge/intel/common/hypcall.h
+ src/mainboard/emulation/qemu-i440fx/fw_cfg.c |  4 ++
+ src/mainboard/emulation/qemu-q35/memmap.c    |  4 +-
+ src/security/Kconfig                         |  6 +++
+ src/security/memory/hypcall.h                | 43 ++++++++++++++++++++
+ 4 files changed, 56 insertions(+), 1 deletion(-)
+ create mode 100644 src/security/memory/hypcall.h
 
-diff --git a/src/arch/x86/memcpy.c b/src/arch/x86/memcpy.c
-index 9da2a7512e..1f7b58e014 100644
---- a/src/arch/x86/memcpy.c
-+++ b/src/arch/x86/memcpy.c
-@@ -4,6 +4,22 @@
- #include <stdbool.h>
- #include <asan.h>
- 
-+#ifdef CONFIG_PROTECTED_GUEST
-+
-+void *memcpy(void *vdest, const void *vsrc, size_t bytes)
-+{
-+	const char *src = vsrc;
-+	char *dest = vdest;
-+	int i;
-+
-+	for (i = 0; i < (int)bytes; i++)
-+		dest[i] = src[i];
-+
-+	return vdest;
-+}
-+
-+#else
-+
- void *memcpy(void *dest, const void *src, size_t n)
- {
- 	unsigned long d0, d1, d2;
-@@ -37,3 +53,4 @@ void *memcpy(void *dest, const void *src, size_t n)
- 
- 	return dest;
- }
-+#endif
 diff --git a/src/mainboard/emulation/qemu-i440fx/fw_cfg.c b/src/mainboard/emulation/qemu-i440fx/fw_cfg.c
 index ad664a6ee0..a992694069 100644
 --- a/src/mainboard/emulation/qemu-i440fx/fw_cfg.c
@@ -60,6 +27,29 @@ index ad664a6ee0..a992694069 100644
  		fw_cfg_detected = detected + 1;
  	}
  	return fw_cfg_detected - 1;
+diff --git a/src/mainboard/emulation/qemu-q35/memmap.c b/src/mainboard/emulation/qemu-q35/memmap.c
+index 150ea113bd..bfc587fafa 100644
+--- a/src/mainboard/emulation/qemu-q35/memmap.c
++++ b/src/mainboard/emulation/qemu-q35/memmap.c
+@@ -75,15 +75,17 @@ void smm_region(uintptr_t *start, size_t *size)
+ 
+ 	*size = decode_tseg_size(esmramc);
+ 	*start = qemu_get_memory_size() * KiB - *size;
+-	printk(BIOS_SPEW, "SMM_BASE: 0x%08lx, SMM_SIZE: %zu MiB\n", *start, *size / MiB);
++	printk(BIOS_INFO, "SMM_BASE: 0x%08lx, SMM_SIZE: %zu MiB\n", *start, *size / MiB);
+ }
+ 
+ void smm_open(void)
+ {
+ 	/* Set D_OPEN */
++	printk(BIOS_INFO, "smm_open() SMM_ASEG\n");
+ 	if (CONFIG(SMM_ASEG))
+ 		pci_write_config8(HOST_BRIDGE, SMRAMC, D_OPEN | G_SMRAME | C_BASE_SEG);
+ 
++	printk(BIOS_INFO, "smm_open() SMM_TSEG\n");
+ 	if (CONFIG(SMM_TSEG))
+ 		pci_and_config8(HOST_BRIDGE, ESMRAMC, ~T_EN);
+ }
 diff --git a/src/security/Kconfig b/src/security/Kconfig
 index abbd0b86b8..320f5c7ebb 100644
 --- a/src/security/Kconfig
@@ -74,17 +64,41 @@ index abbd0b86b8..320f5c7ebb 100644
 +	default y
 +	help
 +	  Build support for running inside protected VM guests.
-diff --git a/src/southbridge/intel/common/hypcall.h b/src/southbridge/intel/common/hypcall.h
+diff --git a/src/security/memory/hypcall.h b/src/security/memory/hypcall.h
 new file mode 100644
-index 0000000000..c5875bb4bc
+index 0000000000..aa4b00af78
 --- /dev/null
-+++ b/src/southbridge/intel/common/hypcall.h
-@@ -0,0 +1,18 @@
-+#define PKVM_HC_SHARE_MEMORY            14
-+#define PKVM_HC_UNSHARE_MEMORY          15
++++ b/src/security/memory/hypcall.h
+@@ -0,0 +1,43 @@
++#include <stdint.h>
++
++#define KVM_HC_VAPIC_POLL_IRQ           1
++#define KVM_HC_MMU_OP                   2
++#define KVM_HC_FEATURES                 3
++#define KVM_HC_PPC_MAP_MAGIC_PAGE       4
++#define KVM_HC_KICK_CPU                 5
++#define KVM_HC_MIPS_GET_CLOCK_FREQ      6
++#define KVM_HC_MIPS_EXIT_VM             7
++#define KVM_HC_MIPS_CONSOLE_OUTPUT      8
++#define KVM_HC_CLOCK_PAIRING            9
++#define KVM_HC_SEND_IPI         10
++#define KVM_HC_SCHED_YIELD              11
++#define KVM_HC_MAP_GPA_RANGE            12
++
++#define KVM_HC_PKVM_OP                  20
++
++/* PKVM provided hypercalls for guest use. */
++#define PKVM_GHC_NUM(x) (x + KVM_HC_PKVM_OP)
++
++#define PKVM_GHC_SHARE_MEM              PKVM_GHC_NUM(1)
++#define PKVM_GHC_UNSHARE_MEM            PKVM_GHC_NUM(2)
++#define PKVM_GHC_IOREAD                 PKVM_GHC_NUM(3)
++#define PKVM_GHC_IOWRITE                PKVM_GHC_NUM(4)
++#define PKVM_GHC_GET_VE_INFO            PKVM_GHC_NUM(5)
++#define PKVM_GHC_SET_VE_INFO            PKVM_GHC_NUM(6)
 +
 +#ifdef CONFIG_PROTECTED_GUEST
-+	static inline int vmcall(int nr, unsigned int p1, unsigned int p2,
++	static inline int hypcall(int nr, unsigned int p1, unsigned int p2,
 +			unsigned int p3, unsigned int p4, unsigned int p5)
 +	{
 +		int ret;
@@ -96,20 +110,9 @@ index 0000000000..c5875bb4bc
 +		return ret;
 +	}
 +#else
-+	static inline int vmcall(int, int, int) { return 0 };
++	static inline int hypcall(int, unsigned int, unsigned int,
++			unsigned int, unsigned int, unsigned int) { return 0 };
 +#endif
-diff --git a/src/southbridge/intel/common/smi.c b/src/southbridge/intel/common/smi.c
-index a6e000b233..03c6b27719 100644
---- a/src/southbridge/intel/common/smi.c
-+++ b/src/southbridge/intel/common/smi.c
-@@ -76,6 +76,7 @@ void global_smi_enable(void)
- 
- void smm_southbridge_clear_state(void)
- {
-+	printk(BIOS_DEBUG, "smm_southbridge_clear_state()\n");
- 	if (smi_enabled())
- 		return;
- 
 -- 
 2.34.1
 

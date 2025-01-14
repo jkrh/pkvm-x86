@@ -188,7 +188,7 @@ CPU="--accel kvm,kernel-irqchip=on -cpu host,$CPUFLAGS -smp 2"
 DRIVE="-drive file=$IMAGE,if=virtio,format=qcow2"
 KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyS0 earlyprintk=serial console=uart[8250],io,0x3f8 ignore_loglevel swiotlb=force"
 NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.1,net=192.168.8.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.8.3:22"
-QEMUOPTS="${CPU} ${SMP} ${MACHINE} -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . "
+QEMUOPTS="${CPU} ${SMP} ${MACHINE} -overcommit mem-lock=on -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . "
 
 # swiotlb requires qemu to advertise VIRTIO_F_IOMMU_PLATFORM to allocate virtio
 # rings from shared region. However, that requires us to disable legacy

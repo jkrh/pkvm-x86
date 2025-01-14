@@ -1,4 +1,4 @@
-From 55a74c5026fc12ccd78c3b3b11d035f8056801f3 Mon Sep 17 00:00:00 2001
+From cb2b121afae254b89d7a6ace4da4ad09f168c8ff Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 17 Oct 2024 15:02:02 +0300
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -110,7 +110,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/nested.h            |   32 +
  arch/x86/kvm/vmx/pkvm/hyp/pci.c               |  350 +++
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
- arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  807 ++++++
+ arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  814 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  155 ++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  499 ++++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
@@ -118,7 +118,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 ++
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.c             |  213 ++
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
- arch/x86/kvm/vmx/pkvm/hyp/q35.h               |   22 +
+ arch/x86/kvm/vmx/pkvm/hyp/q35.h               |   25 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.c             |  117 +
  arch/x86/kvm/vmx/pkvm/hyp/trace.h             |   15 +
  arch/x86/kvm/vmx/pkvm/hyp/vmexit.c            |  497 ++++
@@ -144,7 +144,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  254 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |  106 +-
+ arch/x86/kvm/x86.c                            |  115 +-
  arch/x86/kvm/x86.h                            |    4 +
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -177,7 +177,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 167 files changed, 19682 insertions(+), 841 deletions(-)
+ 167 files changed, 19701 insertions(+), 841 deletions(-)
  rename arch/arm64/{kvm/hyp/include/nvhe/spinlock.h => include/asm/pkvm_spinlock.h} (73%)
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/gfp.h
  delete mode 100644 arch/arm64/kvm/hyp/include/nvhe/memory.h
@@ -14340,10 +14340,10 @@ index 000000000000..22d57eff24df
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pgtable.c b/arch/x86/kvm/vmx/pkvm/hyp/pgtable.c
 new file mode 100644
-index 000000000000..dce654ac17a5
+index 000000000000..97436fa16e40
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pgtable.c
-@@ -0,0 +1,807 @@
+@@ -0,0 +1,814 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -14884,7 +14884,7 @@ index 000000000000..dce654ac17a5
 +	int ret;
 +
 +	if (!size)
-+		return 0;
++		return -EINVAL;
 +
 +	ret = _pgtable_walk(&data, mm_ops->phys_to_virt(pgt->root_pa), pgt->level);
 +
@@ -15069,11 +15069,18 @@ index 000000000000..dce654ac17a5
 +int pkvm_pgtable_annotate(struct pkvm_pgtable *pgt, unsigned long addr,
 +			  unsigned long size, u64 annotation)
 +{
++	int s = PG_LEVEL_4K;
++
 +	if (pgt->pgt_ops->pgt_entry_present(&annotation))
 +		return -EINVAL;
 +
++	if (size >= SZ_2M)
++		s = PG_LEVEL_2M;
++	if (size >= SZ_1G)
++		s = PG_LEVEL_1G;
++
 +	return __pkvm_pgtable_map(pgt, addr, INVALID_ADDR,
-+				  size, 1 << PG_LEVEL_4K, 0,
++				  size, 1 << s, 0,
 +				  NULL, annotation);
 +}
 +
@@ -16530,10 +16537,10 @@ index 000000000000..bfefcf7346c1
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/q35.h b/arch/x86/kvm/vmx/pkvm/hyp/q35.h
 new file mode 100644
-index 000000000000..78d923e3a37b
+index 000000000000..31c5441bf788
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/q35.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,25 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -16544,6 +16551,8 @@ index 000000000000..78d923e3a37b
 +#define VGA_LOWMEM_SZ1 0x20000UL
 +#define VRAM_ADDR 0xfd0000000UL
 +#define VRAM_SZ 0x1000000UL
++#define PCI_CONFIG 0x7ffde000UL
++#define PCI_CONFIG_SZ 0x1000UL
 +
 +typedef struct {
 +	uint64_t addr;
@@ -16554,6 +16563,7 @@ index 000000000000..78d923e3a37b
 +	{ LAPIC_DEFAULT_BASE, LAPIC_SZ },
 +	{ VGA_LOWMEM1, VGA_LOWMEM_SZ1 },
 +	{ VRAM_ADDR, VRAM_SZ },
++	{ PCI_CONFIG, PCI_CONFIG_SZ },
 +	{ 0, 0 },
 +};
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/trace.c b/arch/x86/kvm/vmx/pkvm/hyp/trace.c
@@ -20893,7 +20903,7 @@ index 5edab28dfb2e..e12cceceebdc 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 4e778ba6a5d4..89982e0bab38 100644
+index 4e778ba6a5d4..079508f80348 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -20918,18 +20928,27 @@ index 4e778ba6a5d4..89982e0bab38 100644
  	default:
  		break;
  	}
-@@ -8871,6 +8879,23 @@ EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
+@@ -8871,6 +8879,32 @@ EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
  
  int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
  			    int emulation_type, void *insn, int insn_len)
 +{
 +	int ret;
 +#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
++	/*
++	 * This function can fault within the hypervisor, so for time
++	 * being lock the kernel text section. In the long run pre-
++	 * allocate all the vm memory from a flat pool to prevent any
++	 * faulting - in minimum, anything related to the chipset regs
++	 * or the smm.
++	 */
++	local_irq_disable();
 +	ret = kvm_hypercall5(PKVM_HC_EMULATE_INSN, (unsigned long)vcpu,
 +			    (unsigned long)cr2_or_gpa,
 +			    (unsigned long)emulation_type,
 +			    (unsigned long)insn,
 +			    (unsigned long)insn_len);
++	local_irq_enable();
 +#else
 +	ret = __x86_emulate_instruction(vcpu, cr2_or_gpa, emulation_type,
 +					insn, insn_len);
@@ -20942,7 +20961,7 @@ index 4e778ba6a5d4..89982e0bab38 100644
  {
  	int r;
  	struct x86_emulate_ctxt *ctxt = vcpu->arch.emulate_ctxt;
-@@ -9719,11 +9744,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9719,11 +9753,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -20996,7 +21015,7 @@ index 4e778ba6a5d4..89982e0bab38 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -9961,8 +10028,22 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
+@@ -9961,8 +10037,22 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
   * ordering between that side effect, the instruction completing, _and_ the
   * delivery of the asynchronous event.
   */
@@ -21021,7 +21040,7 @@ index 4e778ba6a5d4..89982e0bab38 100644
  {
  	bool can_inject;
  	int r;
-@@ -12462,9 +12543,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12462,9 +12552,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -21037,7 +21056,7 @@ index 4e778ba6a5d4..89982e0bab38 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12657,6 +12743,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12657,6 +12752,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -21045,7 +21064,7 @@ index 4e778ba6a5d4..89982e0bab38 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12791,10 +12878,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12791,10 +12887,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {

@@ -1,4 +1,4 @@
-From f95e6f9bc888d0c2046d8fd9b690dfe82fd8f9b1 Mon Sep 17 00:00:00 2001
+From 853d22bba8fedc3f27a0c5352e98fcef15296382 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 15 Jan 2025 09:46:59 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -105,7 +105,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 +++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
- arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  478 ++++
+ arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  511 ++++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
  arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1758 ++++++++++++
@@ -146,7 +146,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
  arch/x86/kvm/vmx/vmx_lib.h                    |  254 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
- arch/x86/kvm/x86.c                            |  139 +-
+ arch/x86/kvm/x86.c                            |  140 +-
  arch/x86/kvm/x86.h                            |    4 +
  arch/x86/mm/init_64.c                         |    2 +-
  arch/x86/mm/pat/set_memory.c                  |    4 +
@@ -179,7 +179,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 19870 insertions(+), 518 deletions(-)
+ 149 files changed, 19904 insertions(+), 518 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -10501,10 +10501,10 @@ index 000000000000..ba6608ec6800
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 new file mode 100644
-index 000000000000..5530dcc226e8
+index 000000000000..3ff292f81d76
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
-@@ -0,0 +1,478 @@
+@@ -0,0 +1,511 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -10628,6 +10628,28 @@ index 000000000000..5530dcc226e8
 +	return (pte & PAGE_PFN_MASK) + (virt_addr & PAGE_SIZE_MASK);
 +}
 +
++static unsigned long virt_to_phys_user(struct mm_struct *mm, unsigned long virt)
++{
++	struct vm_area_struct *vma;
++	struct page *page;
++	phys_addr_t phys = ~0;
++
++	/* FIXME: mmget(mm) */
++	down_read(&mm->mmap_lock);
++	vma = find_vma(mm, virt);
++	if (!vma || virt < vma->vm_start)
++		goto out;
++
++	page = follow_page(vma, virt, 0);
++	if (!page || IS_ERR(page))
++		goto out;
++
++	phys = page_to_phys(page);
++out:
++	up_read(&mm->mmap_lock);
++	return phys;
++}
++
 +unsigned long pkvm_user_to_phys(struct kvm_vcpu *vcpu, unsigned long vaddr)
 +{
 +	struct shadow_vcpu_state *shadow_vcpu;
@@ -10659,18 +10681,23 @@ index 000000000000..5530dcc226e8
 +	return 0;
 +}
 +
-+static void hyp_check_owner(struct shadow_vcpu_state *shadow_vcpu, unsigned long addr)
++static int hyp_check_owner(struct shadow_vcpu_state *shadow_vcpu, unsigned long addr, int len)
 +{
-+	/* fixme */
-+	return;
-+
 +	unsigned long phys;
 +	int id;
 +
-+	phys = pkvm_virt_to_phys((void *)addr);
++	if (pkvm_is_share(shadow_vcpu->vm, addr, len))
++		return 0;
++
++	phys = virt_to_phys_user(shadow_vcpu->vm->mm, addr);
++	if (phys == ~0)
++		return -EINVAL;
++
 +	id = pkvm_page_owner(phys);
-+	if (id != (to_shadow_vm_handle(shadow_vcpu->shadow_vcpu_handle) + 1))
++	if (id != to_shadow_vm_handle(shadow_vcpu->shadow_vcpu_handle))
 +		panic("illegal guest read or write\n");
++
++	return 0;
 +}
 +
 +/*
@@ -10682,6 +10709,7 @@ index 000000000000..5530dcc226e8
 +{
 +	struct shadow_vcpu_state *shadow_vcpu;
 +	unsigned long addr;
++	int res;
 +
 +	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
 +	if (!shadow_vcpu)
@@ -10691,7 +10719,9 @@ index 000000000000..5530dcc226e8
 +	if (kvm_is_error_hva(addr))
 +		return -EFAULT;
 +
-+	hyp_check_owner(shadow_vcpu, addr);
++	res = hyp_check_owner(shadow_vcpu, addr + offset, len);
++	if (res)
++		return -EFAULT;
 +	addr += offset;
 +
 +	hyp_write_cr3(pkvm_virt_to_phys(shadow_vcpu->vm->mm->pgd));
@@ -10710,6 +10740,7 @@ index 000000000000..5530dcc226e8
 +{
 +	struct shadow_vcpu_state *shadow_vcpu;
 +	unsigned long addr;
++	int res;
 +
 +	shadow_vcpu = get_shadow_vcpu(vcpu->pkvm_shadow_vcpu_handle);
 +	if (!shadow_vcpu)
@@ -10719,7 +10750,9 @@ index 000000000000..5530dcc226e8
 +	if (kvm_is_error_hva(addr))
 +		return -EFAULT;
 +
-+	hyp_check_owner(shadow_vcpu, addr);
++	res = hyp_check_owner(shadow_vcpu, addr + offset, len);
++	if (res)
++		return -EFAULT;
 +	addr += offset;
 +
 +	hyp_write_cr3(pkvm_virt_to_phys(shadow_vcpu->vm->mm->pgd));
@@ -11283,7 +11316,7 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..768014d7f0fc
+index 000000000000..2a8d3f0097be
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 @@ -0,0 +1,1758 @@
@@ -12854,7 +12887,7 @@ index 000000000000..768014d7f0fc
 +				addr, &spte, &l);
 +	if (phys != ~0UL)
 +		return PKVM_HOST_HANDLE;
-+	return (int)spte;
++	return (int)(spte >> 12) & 0xF;
 +}
 +
 +static bool nested_handle_vmcall(struct kvm_vcpu *vcpu)
@@ -20026,7 +20059,7 @@ index 5edab28dfb2e..e12cceceebdc 100644
  
  #endif /* __KVM_X86_VMX_INSN_H */
 diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
-index 4e778ba6a5d4..e854ae76f8ae 100644
+index 4e778ba6a5d4..e7471be561cc 100644
 --- a/arch/x86/kvm/x86.c
 +++ b/arch/x86/kvm/x86.c
 @@ -79,6 +79,7 @@
@@ -20051,7 +20084,7 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
  	default:
  		break;
  	}
-@@ -8871,6 +8879,56 @@ EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
+@@ -8871,6 +8879,57 @@ EXPORT_SYMBOL_GPL(x86_decode_emulated_instruction);
  
  int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
  			    int emulation_type, void *insn, int insn_len)
@@ -20093,8 +20126,9 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
 + * To do this, the guest reads and writes are pushed to two functions,
 + * __hyp_{read,write}_guest_page. These functions do not allow operation
 + * outside of the guest address space. The resulting hva we act on is
-+ * double checked to reside in the guest. This check is vital at the
-+ * moment as the memory slot is a host controllable construct.
++ * double checked to reside in the guest or inside a share. This check
++ * is vital at the moment as the memory slot is a host controllable
++ * construct.
 + *
 + * The processor register states for the instruction emulation come via
 + * vmcs guest state area that resides in the hyp mode 02 structure, 12
@@ -20108,7 +20142,7 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
  {
  	int r;
  	struct x86_emulate_ctxt *ctxt = vcpu->arch.emulate_ctxt;
-@@ -9719,11 +9777,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
+@@ -9719,11 +9778,53 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
  	return kvm_skip_emulated_instruction(vcpu);
  }
  
@@ -20162,7 +20196,7 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
  	if (kvm_xen_hypercall_enabled(vcpu->kvm))
  		return kvm_xen_hypercall(vcpu);
  
-@@ -9961,8 +10061,22 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
+@@ -9961,8 +10062,22 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
   * ordering between that side effect, the instruction completing, _and_ the
   * delivery of the asynchronous event.
   */
@@ -20187,7 +20221,7 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
  {
  	bool can_inject;
  	int r;
-@@ -12462,9 +12576,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
+@@ -12462,9 +12577,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
  	int ret;
  	unsigned long flags;
  
@@ -20203,7 +20237,7 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
  	ret = kvm_page_track_init(kvm);
  	if (ret)
  		goto out;
-@@ -12657,6 +12776,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
+@@ -12657,6 +12777,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
  	kvm_page_track_cleanup(kvm);
  	kvm_xen_destroy_vm(kvm);
  	kvm_hv_destroy_vm(kvm);
@@ -20211,7 +20245,7 @@ index 4e778ba6a5d4..e854ae76f8ae 100644
  }
  
  static void memslot_rmap_free(struct kvm_memory_slot *slot)
-@@ -12791,10 +12911,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -12791,10 +12912,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  				   struct kvm_memory_slot *new,
  				   enum kvm_mr_change change)
  {

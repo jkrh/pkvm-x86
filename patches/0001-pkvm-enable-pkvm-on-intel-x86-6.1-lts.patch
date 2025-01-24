@@ -1,4 +1,4 @@
-From 853d22bba8fedc3f27a0c5352e98fcef15296382 Mon Sep 17 00:00:00 2001
+From 0cc6d6cc1b178a6359a6cd4fcc0d06e66346da45 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 15 Jan 2025 09:46:59 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -105,7 +105,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/mem_protect.h       |  205 ++
  arch/x86/kvm/vmx/pkvm/hyp/memory.c            |  363 +++
  arch/x86/kvm/vmx/pkvm/hyp/memory.h            |   51 +
- arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  511 ++++
+ arch/x86/kvm/vmx/pkvm/hyp/mmops.c             |  510 ++++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.c               |  258 ++
  arch/x86/kvm/vmx/pkvm/hyp/mmu.h               |   28 +
  arch/x86/kvm/vmx/pkvm/hyp/nested.c            | 1758 ++++++++++++
@@ -114,7 +114,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/pci.h               |   24 +
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.c           |  814 ++++++
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  158 ++
- arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  495 ++++
+ arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  499 ++++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
  arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  222 ++
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 ++
@@ -179,7 +179,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 19904 insertions(+), 518 deletions(-)
+ 149 files changed, 19907 insertions(+), 518 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -10501,10 +10501,10 @@ index 000000000000..ba6608ec6800
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 new file mode 100644
-index 000000000000..3ff292f81d76
+index 000000000000..5842136164b1
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
-@@ -0,0 +1,511 @@
+@@ -0,0 +1,510 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + */
@@ -10634,7 +10634,6 @@ index 000000000000..3ff292f81d76
 +	struct page *page;
 +	phys_addr_t phys = ~0;
 +
-+	/* FIXME: mmget(mm) */
 +	down_read(&mm->mmap_lock);
 +	vma = find_vma(mm, virt);
 +	if (!vma || virt < vma->vm_start)
@@ -11316,7 +11315,7 @@ index 000000000000..ea2df00e1a5b
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/nested.c b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 new file mode 100644
-index 000000000000..2a8d3f0097be
+index 000000000000..ba9937635a52
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/nested.c
 @@ -0,0 +1,1758 @@
@@ -12885,7 +12884,7 @@ index 000000000000..2a8d3f0097be
 +	phys = guest_ept_lookup(&pkvm_hyp->host_vm.host_vcpus[0]->vmx.vcpu,
 +			        pkvm_hyp->host_vm.ept->root_pa,
 +				addr, &spte, &l);
-+	if (phys != ~0UL)
++	if (phys != ~0)
 +		return PKVM_HOST_HANDLE;
 +	return (int)(spte >> 12) & 0xF;
 +}
@@ -14488,10 +14487,10 @@ index 000000000000..f1e20c0245b7
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c b/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c
 new file mode 100644
-index 000000000000..1f69d7129280
+index 000000000000..b4d0cb2b9853
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm.c
-@@ -0,0 +1,495 @@
+@@ -0,0 +1,499 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -14618,9 +14617,10 @@ index 000000000000..1f69d7129280
 +	vm->host_kvm_va = kvm_va;
 +	vm->shadow_size = shadow_size;
 +	vm->vm_type = vm_type;
-+	vm->mm = current->mm;
 +
 +#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
++	mmget(current->mm);
++	vm->mm = current->mm;
 +	memcpy(&vm->shares, &dma_memmap, sizeof(dma_memmap));
 +#endif
 +
@@ -14655,6 +14655,9 @@ index 000000000000..1f69d7129280
 +	if (!vm)
 +		return 0;
 +
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
++	mmput(vm->mm);
++#endif
 +	pkvm_shadow_ept_deinit(&vm->sept_desc);
 +
 +	pkvm_pgstate_pgt_deinit(vm);

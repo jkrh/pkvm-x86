@@ -1,14 +1,14 @@
-This is a PKVM-IA fork that attempts to make the PKVM work correctly
-with full feature set provided by the KVM. This includes working
-with non-modified system BIOSs and hardware flavors that do not
-support #VE, including the KVM VCPU itself.
+This is a pKVM-IA fork that makes the PKVM work with the full feature set
+provided by the KVM. This includes working with non-modified system BIOSs,
+Operating Systems and hardware flavors that do not support Virtualized
+Exceptions (#VEs), including the KVM VCPU itself.
 
-In addition the goal is to provide each guest SMM mode visible for
-the hypervisor only, in other words unreachable for both the guest
-and the host. When chained correctly with the system SMM, the guests
-can have relatively secure custom key storage & crypto unit without
-being dependent on the TPM functionality.
+In addition, the goal is to provide each guest with an SMM mode visible
+only to the hypervisor, in other words, unreachable for both the guest
+and the host. When chained correctly with the system SMM building up to a
+real trust source, the guests can have access to a VM specific secure key
+storage & crypto units without being dependent on 'untrusted' entities
+that cannot be validated & extended like the TPM.
 
-Beyond the basic functionality the PKVM is extended with tools for
-the trusted guest debugging and validation for any given set of
-virtual devices.
+Beyond the basic functionality, the PKVM is extended with tools for trusted
+guest debugging and validation for any given set of virtual devices.

@@ -1,22 +1,22 @@
-From d45393b132f48e12f04786ccdc866481e73b100f Mon Sep 17 00:00:00 2001
+From 44411387730c6078c2311417ded9d7d8e254cab3 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
-Date: Mon, 14 Oct 2024 11:31:33 +0300
+Date: Mon, 27 Jan 2025 15:36:29 +0200
 Subject: [PATCH] base: introduce protected vm guest support
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- src/mainboard/emulation/qemu-i440fx/fw_cfg.c |  4 ++
- src/mainboard/emulation/qemu-q35/memmap.c    |  4 +-
- src/security/Kconfig                         |  6 +++
- src/security/memory/hypcall.h                | 43 ++++++++++++++++++++
+ src/drivers/emulation/qemu/fw_cfg.c       |  4 +++
+ src/mainboard/emulation/qemu-q35/memmap.c |  4 ++-
+ src/security/Kconfig                      |  6 ++++
+ src/security/memory/hypcall.h             | 43 +++++++++++++++++++++++
  4 files changed, 56 insertions(+), 1 deletion(-)
  create mode 100644 src/security/memory/hypcall.h
 
-diff --git a/src/mainboard/emulation/qemu-i440fx/fw_cfg.c b/src/mainboard/emulation/qemu-i440fx/fw_cfg.c
-index ad664a6ee0..a992694069 100644
---- a/src/mainboard/emulation/qemu-i440fx/fw_cfg.c
-+++ b/src/mainboard/emulation/qemu-i440fx/fw_cfg.c
-@@ -37,6 +37,10 @@ static int fw_cfg_present(void)
+diff --git a/src/drivers/emulation/qemu/fw_cfg.c b/src/drivers/emulation/qemu/fw_cfg.c
+index 3725419e7b..80a588a6ad 100644
+--- a/src/drivers/emulation/qemu/fw_cfg.c
++++ b/src/drivers/emulation/qemu/fw_cfg.c
+@@ -36,6 +36,10 @@ static int fw_cfg_present(void)
  			fw_cfg_get(FW_CFG_ID, &fw_ver, sizeof(fw_ver));
  			printk(BIOS_INFO, "Firmware config version id: %d\n", fw_ver);
  		}
@@ -28,10 +28,10 @@ index ad664a6ee0..a992694069 100644
  	}
  	return fw_cfg_detected - 1;
 diff --git a/src/mainboard/emulation/qemu-q35/memmap.c b/src/mainboard/emulation/qemu-q35/memmap.c
-index 150ea113bd..bfc587fafa 100644
+index 3e8da5ca08..262e44243f 100644
 --- a/src/mainboard/emulation/qemu-q35/memmap.c
 +++ b/src/mainboard/emulation/qemu-q35/memmap.c
-@@ -75,15 +75,17 @@ void smm_region(uintptr_t *start, size_t *size)
+@@ -62,15 +62,17 @@ void smm_region(uintptr_t *start, size_t *size)
  
  	*size = decode_tseg_size(esmramc);
  	*start = qemu_get_memory_size() * KiB - *size;

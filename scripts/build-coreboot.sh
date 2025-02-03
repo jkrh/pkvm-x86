@@ -85,6 +85,7 @@ cd "$COREBOOT_DIR"
 
 if [ ! -d $XGXX ]; then
 	make crossgcc-i386 CPUS=$(nproc)
+	make crossgcc-x64 CPUS=$(nproc)
 fi
 
 rm -rf .config

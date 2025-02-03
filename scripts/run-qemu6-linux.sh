@@ -6,7 +6,7 @@ USER=$(whoami)
 # Arguments and defaults
 #
 [ -z "$PORT" ] && PORT=$((2000 + RANDOM % 1000))
-[ -z "$KERNEL" ] && KERNEL="./bxImage"
+[ -z "$KERNEL" ] && KERNEL="./bzImage"
 [ -z "$IMAGE" ] && IMAGE="ubuntuguest.qcow2"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICEPORT=$(($PORT+1)) && SPICESOCK="port=$SPICEPORT"
@@ -181,22 +181,16 @@ SCREEN="-nographic"
 # Machine settings
 #
 [ -z "$MEM" ] && MEM=4096
-MACHINE="-machine q35 -device intel-iommu,aw-bits=48,device-iotlb=on"
+MACHINE="-machine q35"
 CPUFLAGS="+kvm-pv-enforce-cpuid,-vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
-CPU="--accel kvm,kernel-irqchip=on -cpu host,$CPUFLAGS -smp 2"
+CPU="--accel kvm,kernel-irqchip=split -cpu host,$CPUFLAGS -smp 2"
 
 DRIVE="-drive file=$IMAGE,if=virtio,format=qcow2"
-KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyS0 earlyprintk=serial console=uart[8250],io,0x3f8 ignore_loglevel swiotlb=force"
-NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.1,net=192.168.8.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.8.3:22"
-QEMUOPTS="${CPU} ${SMP} ${MACHINE} -overcommit mem-lock=on -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . "
-
-# swiotlb requires qemu to advertise VIRTIO_F_IOMMU_PLATFORM to allocate virtio
-# rings from shared region. However, that requires us to disable legacy
-# devices.
-QEMUOPTS="$QEMUOPTS -global virtio-pci.disable-legacy=on -global virtio-pci.iommu_platform=on "
-
+KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr earlyprintk=serial console=uart[8250],io,0x3f8 ignore_loglevel swiotlb=force"
+#DEBUGOPTS="$DEBUGOPTS --trace kvm_run_exit -D qemudebug.log"
+QEMUOPTS="${CPU} ${SMP} ${MACHINE} -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L ."
 if [ "$BIOS" = "1" ]; then
-QEMUOPTS="$QEMUOPTS -bios coreboot-guest.rom"
+QEMUOPTS="-bios coreboot-guest.rom -overcommit mem-lock=on $QEMUOPTS"
 fi
 
 #[ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice"
@@ -214,6 +208,9 @@ else
 fi
 echo "- Host wlan ip $LOCALIP"
 
-qemu-system-x86_64 -name $VMNAME -kernel $KERNEL $DRIVE $INPUT \
+#
+# Note: for now need the patched qemu
+#
+LD_LIBRARY_PATH=$PWD ./qemu-system-x86_64 -name $VMNAME -kernel $KERNEL $DRIVE $INPUT \
 	$PARTITIONS $SHARED_FS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
 exit 0

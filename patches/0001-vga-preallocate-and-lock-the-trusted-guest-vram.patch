@@ -1,0 +1,27 @@
+From 2550ac560219ae172be14801405ddfa5628e0df6 Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Mon, 3 Feb 2025 15:14:06 +0200
+Subject: [PATCH] vga: preallocate and lock the trusted guest vram
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ hw/display/vga.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/hw/display/vga.c b/hw/display/vga.c
+index 40adeb3e2f..318b18b40f 100644
+--- a/hw/display/vga.c
++++ b/hw/display/vga.c
+@@ -2254,6 +2254,9 @@ bool vga_common_init(VGACommonState *s, Object *obj, Error **errp)
+     vmstate_register_ram(&s->vram, s->global_vmstate ? NULL : DEVICE(obj));
+     xen_register_framebuffer(&s->vram);
+     s->vram_ptr = memory_region_get_ram_ptr(&s->vram);
++    /* DMA hole: preallocate the ram */
++    memset(s->vram_ptr, 0, s->vram_size);
++    mlock(s->vram_ptr, s->vram_size);
+     s->get_bpp = vga_get_bpp;
+     s->get_params = vga_get_params;
+     s->get_resolution = vga_get_resolution;
+-- 
+2.34.1
+

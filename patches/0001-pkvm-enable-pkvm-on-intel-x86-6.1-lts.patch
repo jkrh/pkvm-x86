@@ -1,4 +1,4 @@
-From 6674ef109b10f9b2d34323d3f6ec2338051662c0 Mon Sep 17 00:00:00 2001
+From 47b1517171314265dfb058a194b23b95eac2394f Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -5059,7 +5059,7 @@ index 000000000000..d9303bd8bf20
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/iommu.c b/arch/x86/kvm/vmx/pkvm/hyp/iommu.c
 new file mode 100644
-index 000000000000..207ab0253f36
+index 000000000000..a4e91c050266
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/iommu.c
 @@ -0,0 +1,2378 @@
@@ -6736,7 +6736,7 @@ index 000000000000..207ab0253f36
 +	u64 mask = ((u64)-1) << (VTD_PAGE_SHIFT + QI_DESC_IOTLB_AM(desc->qw1));
 +	struct shadow_pgt_sync_data data;
 +	struct pkvm_ptdev *p;
-+	int ret;
++	int ret = 0;
 +
 +	switch (granu) {
 +	case DMA_TLB_GLOBAL_FLUSH:

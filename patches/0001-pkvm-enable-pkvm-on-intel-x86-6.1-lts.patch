@@ -1,4 +1,4 @@
-From 989eb031c152d4ff27cf43e397512ed12dc54ca4 Mon Sep 17 00:00:00 2001
+From 6674ef109b10f9b2d34323d3f6ec2338051662c0 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -90,7 +90,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/io.h                |   82 +
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.c        |  374 +++
  arch/x86/kvm/vmx/pkvm/hyp/io_emulate.h        |   67 +
- arch/x86/kvm/vmx/pkvm/hyp/iommu.c             | 2372 +++++++++++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/iommu.c             | 2378 +++++++++++++++++
  arch/x86/kvm/vmx/pkvm/hyp/iommu.h             |   16 +
  arch/x86/kvm/vmx/pkvm/hyp/iommu_debug.c       |  199 ++
  arch/x86/kvm/vmx/pkvm/hyp/iommu_internal.h    |  347 +++
@@ -181,7 +181,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 19970 insertions(+), 402 deletions(-)
+ 149 files changed, 19976 insertions(+), 402 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -5059,10 +5059,10 @@ index 000000000000..d9303bd8bf20
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/iommu.c b/arch/x86/kvm/vmx/pkvm/hyp/iommu.c
 new file mode 100644
-index 000000000000..cd5ad0f281bc
+index 000000000000..207ab0253f36
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/iommu.c
-@@ -0,0 +1,2372 @@
+@@ -0,0 +1,2378 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -6749,8 +6749,11 @@ index 000000000000..cd5ad0f281bc
 +
 +		/* optimization: walk just the needed devices, not the entire bdf space */
 +		list_for_each_entry(p, &iommu->ptdev_head, iommu_node)
-+			if (p->did == did)
++			if (p->did == did) {
 +				ret = sync_shadow_id(iommu, p->bdf, p->bdf + 1, did, NULL);
++				if (ret)
++					break;
++			}
 +		break;
 +	case DMA_TLB_PSI_FLUSH:
 +		data.vaddr = addr & mask;
@@ -6760,8 +6763,11 @@ index 000000000000..cd5ad0f281bc
 +
 +		/* optimization: walk just the needed devices, not the entire bdf space */
 +		list_for_each_entry(p, &iommu->ptdev_head, iommu_node)
-+			if (p->did == did)
++			if (p->did == did) {
 +				ret = sync_shadow_id(iommu, p->bdf, p->bdf + 1, did, &data);
++				if (ret)
++					break;
++			}
 +		break;
 +	default:
 +//		pkvm_err("pkvm: %s: iommu%d: invalid granularity %lld\n",

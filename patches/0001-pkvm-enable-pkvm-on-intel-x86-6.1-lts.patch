@@ -1,4 +1,4 @@
-From fa8699746153c0fc71cc8682cf211c1b24e4d1f9 Mon Sep 17 00:00:00 2001
+From 989eb031c152d4ff27cf43e397512ed12dc54ca4 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -14852,7 +14852,7 @@ index 000000000000..af81ce58c72f
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
 new file mode 100644
-index 000000000000..16e14637f214
+index 000000000000..61aac2b7b111
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
 @@ -0,0 +1,228 @@
@@ -14933,7 +14933,7 @@ index 000000000000..16e14637f214
 +	u8 vmcs02[PAGE_SIZE] __aligned(PAGE_SIZE);
 +	u8 cached_vmcs12[VMCS12_SIZE] __aligned(PAGE_SIZE);
 +
-+	struct pkvm_ve_info ve_info;
++	struct pkvm_ve_info ve_info __aligned(PAGE_SIZE);
 +
 +	/* The last cpu this vmcs02 runs with */
 +	int last_cpu;

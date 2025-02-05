@@ -18,6 +18,8 @@ OUTFILE=ubuntuguest.qcow2
 OUTDIR=$BASE_DIR/images/guest
 SIZE=10G
 
+[ ! -e "$GUEST_KERNEL" ] && echo "Please provide a kernel directory" && exit 1
+
 do_unmount()
 {
 	if [[ $(findmnt -M "$1") ]]; then

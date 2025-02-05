@@ -4,6 +4,7 @@ build-essential
 libtool
 libwayland-dev
 python3-pyparsing
+python3-tomli
 ninja-build
 libepoxy-dev
 adduser

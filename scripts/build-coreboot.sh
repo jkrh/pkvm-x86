@@ -3,6 +3,7 @@
 TGT=0
 BASEDIR=$PWD
 XGXX=$BASEDIR/coreboot/util/crossgcc/xgcc
+unset CC
 
 usage() {
 	echo "$0 -e | -g"

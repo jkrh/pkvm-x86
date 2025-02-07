@@ -1,4 +1,4 @@
-From 8c5b142e72ec4c0c39c007ebeb192b0c62cb3153 Mon Sep 17 00:00:00 2001
+From a7f476b4fcd27e678eb8f0f5e16ecbf99da9a262 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -83,7 +83,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1182 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1184 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   73 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  466 ++++
@@ -118,7 +118,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/pgtable.h           |  158 ++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.c              |  493 ++++
  arch/x86/kvm/vmx/pkvm/hyp/pkvm.lds.S          |   10 +
- arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  228 ++
+ arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h          |  233 ++
  .../vmx/pkvm/hyp/pkvm_nested_vmcs_fields.h    |  191 ++
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.c             |  213 ++
  arch/x86/kvm/vmx/pkvm/hyp/ptdev.h             |   53 +
@@ -181,7 +181,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 19986 insertions(+), 402 deletions(-)
+ 149 files changed, 19993 insertions(+), 402 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -2710,10 +2710,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..2658805f2470
+index 000000000000..0d3a746fbdf8
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1182 @@
+@@ -0,0 +1,1184 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -3219,7 +3219,7 @@ index 000000000000..2658805f2470
 +out:
 +	if (ret == 0)
 +		*skip_instruction = false;
-+	if (ret == -EPERM) {
++	if (pkvm_has_vmx_root_mmio() && ret == -EPERM) {
 +		handle_permission_violation(vcpu);
 +		*skip_instruction = false;
 +	}
@@ -3849,9 +3849,11 @@ index 000000000000..2658805f2470
 +		goto out;
 +	}
 +
-+	/* Guest EPT error, refuse to handle in shadow ept */
-+	if (is_access_violation(gprot, exit_quali))
-+		goto out;
++	if (pkvm_has_vmx_root_mmio()) {
++		/* Guest EPT error, refuse to handle in shadow ept */
++		if (is_access_violation(gprot, exit_quali))
++			goto out;
++	}
 +
 +	/*
 +	 * Still set SUPPRESS_VE bit here as some mapping may still
@@ -14866,10 +14868,10 @@ index 000000000000..af81ce58c72f
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
 new file mode 100644
-index 000000000000..61aac2b7b111
+index 000000000000..e3b86a1328ef
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/pkvm_hyp.h
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,233 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -15095,6 +15097,11 @@ index 000000000000..61aac2b7b111
 +static inline bool shadow_vcpu_is_ve_valid(struct shadow_vcpu_state *shadow_vcpu)
 +{
 +	return shadow_vcpu->ve_info.valid == EPT_VIOLATION_VE_VALID;
++}
++
++static inline bool pkvm_has_vmx_root_mmio(void)
++{
++	return IS_ENABLED(CONFIG_PKVM_INTEL_VMXROOT_MMIO);
 +}
 +
 +#endif
@@ -23049,5 +23056,5 @@ index 365d30779768..c43b975c4729 100644
  	mutex_unlock(&kv->lock);
  err_fput:
 -- 
-2.34.1
+2.44.2
 

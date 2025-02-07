@@ -1,4 +1,4 @@
-From 1f0a59b37a200ddc3ebf8a47e9718227a329b8db Mon Sep 17 00:00:00 2001
+From 8c5b142e72ec4c0c39c007ebeb192b0c62cb3153 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -174,14 +174,14 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  tools/arch/x86/include/uapi/asm/kvm.h         |    3 +
  tools/include/uapi/linux/kvm.h                |    1 +
  .../selftests/kvm/include/x86_64/vmx.h        |    7 +
- virt/kvm/kvm_main.c                           |  105 +-
+ virt/kvm/kvm_main.c                           |  107 +-
  virt/kvm/pkvm/buddy_memory.h                  |   36 +
  virt/kvm/pkvm/gfp.h                           |   35 +
  virt/kvm/pkvm/page_alloc.c                    |  261 ++
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 19984 insertions(+), 402 deletions(-)
+ 149 files changed, 19986 insertions(+), 402 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -22279,7 +22279,7 @@ index 71b290b6469d..610618432f3f 100644
  #define PIN_BASED_NMI_EXITING			0x00000008
  #define PIN_BASED_VIRTUAL_NMIS			0x00000020
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 7a4fd1dbe0d7..bf862f08253e 100644
+index 7a4fd1dbe0d7..31b903d35b9c 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -55,6 +55,7 @@
@@ -22495,14 +22495,16 @@ index 7a4fd1dbe0d7..bf862f08253e 100644
  {
  	struct kvm_cpu_compat_check c;
  	int r;
-@@ -5947,6 +6030,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -5947,6 +6030,14 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  			goto out_free_2;
  	}
  
-+	r = ops->pkvm_init();
-+	if (r) {
-+		pr_err_ratelimited("kvm: pkvm init fail\n");
-+		return r;
++	if (ops->pkvm_init) {
++		r = ops->pkvm_init();
++		if (r) {
++			pr_err_ratelimited("kvm: pkvm init fail\n");
++			return r;
++		}
 +	}
 +
  	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_STARTING, "kvm/cpu:starting",

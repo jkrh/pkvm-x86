@@ -16,3 +16,7 @@ export BUILD_TOOLS := $(TOOLDIR)/usr/bin/qemu-system-x86_64
 export FETCH_SOURCES := $(BASE_DIR)/qemu/VERSION
 export GROUP := $$(id -gn)
 export GUEST_KERNEL ?= $(BASE_DIR)/build/linux
+
+export BUILD_SYSROOT_DIR=$(BASE_DIR)/ubuntu
+export UBUNTU_BASE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.1-base-amd64.tar.gz
+export UBUNTU_PKGLIST=$(BASE_DIR)/scripts/package.list.24

@@ -350,3 +350,5 @@ qemu-system-x86
 pahole
 python3-venv
 sshfs
+gnat
+gnome-terminal

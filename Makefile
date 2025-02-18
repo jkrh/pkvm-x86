@@ -69,7 +69,7 @@ target-qemu-distclean:
 	@./scripts/build-target-qemu.sh distclean
 
 target-crosvm:
-	@./scripts/build-target-crosvm.sh
+	@$(BUILD_WRAPPER) ./scripts/build-target-crosvm.sh
 
 guest-kernel:
 	@./scripts/build-guest-kernel.sh

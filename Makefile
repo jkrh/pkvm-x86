@@ -54,6 +54,11 @@ qemu-clean:
 qemu-distclean:
 	@./scripts/build-qemu.sh distclean
 
+coreboot: kernel
+	@IMAGE_SUFFIX=host COREBOOT_LINUX_CMDLINE="$(KERNEL_OPTS)" ./scripts/build-coreboot.sh \
+		scripts/q35_defconfig \
+		linux/arch/x86_64/boot/bzImage
+
 target-sysroot:
 	@./scripts/create-sysroot.sh
 
@@ -72,6 +77,10 @@ target-qemu-distclean:
 target-crosvm:
 	@$(BUILD_WRAPPER) ./scripts/build-target-crosvm.sh
 
+target-coreboot: guest-kernel
+	@IMAGE_SUFFIX=guest $(BUILD_WRAPPER) ./scripts/build-coreboot.sh \
+		scripts/q35_guest_defconfig linux/arch/x86_64/boot/bzImage
+
 guest-kernel:
 	@CC=$(CC) ./scripts/build-guest-kernel.sh
 
@@ -80,11 +89,5 @@ guestimage:
 
 hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)
-
-coreboot-guest: guest-kernel
-	@./scripts/build-coreboot.sh -g
-
-coreboot-host: kernel
-	@./scripts/build-coreboot.sh -e
 
 .PHONY: all clean target-qemu run $(DIRS)

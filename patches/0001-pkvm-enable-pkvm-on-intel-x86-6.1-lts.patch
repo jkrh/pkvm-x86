@@ -1,4 +1,4 @@
-From 033f9bf36b9c24d4768e7965a9e190f41742c41f Mon Sep 17 00:00:00 2001
+From d529a6e2147b5ba12dd653e8fa47fbe872afeb74 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -82,7 +82,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/hyp/debug.h             |   20 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.c       |   76 +
  arch/x86/kvm/vmx/pkvm/hyp/early_alloc.h       |   15 +
- arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1188 ++++++++
+ arch/x86/kvm/vmx/pkvm/hyp/ept.c               | 1185 ++++++++
  arch/x86/kvm/vmx/pkvm/hyp/ept.h               |   73 +
  arch/x86/kvm/vmx/pkvm/hyp/idt.S               |   67 +
  arch/x86/kvm/vmx/pkvm/hyp/init_finalise.c     |  466 ++++
@@ -180,7 +180,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 20040 insertions(+), 402 deletions(-)
+ 149 files changed, 20037 insertions(+), 402 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -2713,10 +2713,10 @@ index 000000000000..59bede62cd03
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/ept.c b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
 new file mode 100644
-index 000000000000..5fe1d3bb34ea
+index 000000000000..7cd3cfe0dc9d
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/ept.c
-@@ -0,0 +1,1188 @@
+@@ -0,0 +1,1185 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -3779,9 +3779,7 @@ index 000000000000..5fe1d3bb34ea
 +				 __func__, gpa, hpa, size);
 +			return false;
 +		}
-+	}
-+#ifndef CONFIG_PKVM_INTEL_VMXROOT_MMIO
-+	else if (mapped_hpa != hpa) {
++	} else if (mapped_hpa != hpa) {
 +		/*
 +		 * Page state pgt has mapping already, so check if the mapped
 +		 * phys matches with the hpa, and report an error if doesn't
@@ -3791,7 +3789,6 @@ index 000000000000..5fe1d3bb34ea
 +			 mapped_hpa, hpa, gpa);
 +		return false;
 +	}
-+#endif
 +	return true;
 +}
 +
@@ -10379,7 +10376,7 @@ index 000000000000..ba6608ec6800
 +#endif
 diff --git a/arch/x86/kvm/vmx/pkvm/hyp/mmops.c b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 new file mode 100644
-index 000000000000..a19689a16fb9
+index 000000000000..3aeed55e0000
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/hyp/mmops.c
 @@ -0,0 +1,589 @@
@@ -10847,7 +10844,7 @@ index 000000000000..a19689a16fb9
 +		if (vcpu->kvm->pkvm.shadow_vm_handle == PKVM_HOST_HANDLE)
 +			eptp = pkvm_hyp->host_vm.ept->root_pa;
 +		else
-+			eptp = vm->sept_desc.shadow_eptp;
++			eptp = vm->sept_desc.sept.root_pa;
 +		pkvm_info("VCPU 0x%llx EPTP 0x%llx shadow mappings:\n",
 +			 (u64)vcpu, eptp);
 +		break;

@@ -53,6 +53,12 @@ qemu-clean:
 qemu-distclean:
 	@./scripts/build-qemu.sh distclean
 
+target-sysroot:
+	@./scripts/create-sysroot.sh
+
+target-sysroot-distclean:
+	@./scripts/create-sysroot.sh distclean
+
 target-qemu:
 	@DEBUG=1 ./scripts/build-target-qemu.sh
 

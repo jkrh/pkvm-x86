@@ -1,4 +1,4 @@
-From d529a6e2147b5ba12dd653e8fa47fbe872afeb74 Mon Sep 17 00:00:00 2001
+From 398ed812ebdeb9a855824fa8e46de0546a0f2908 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -46,7 +46,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/include/asm/kvm-x86-ops.h            |    2 +
  arch/x86/include/asm/kvm_host.h               |   18 +
  arch/x86/include/asm/kvm_para.h               |   16 +
- arch/x86/include/asm/kvm_pkvm.h               |  306 +++
+ arch/x86/include/asm/kvm_pkvm.h               |  304 +++
  arch/x86/include/asm/pkvm.h                   |  164 ++
  arch/x86/include/asm/pkvm_image.h             |   48 +
  arch/x86/include/asm/pkvm_image_vars.h        |   23 +
@@ -180,7 +180,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 20037 insertions(+), 402 deletions(-)
+ 149 files changed, 20035 insertions(+), 402 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -877,10 +877,10 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..57862f6703f8
+index 000000000000..edfa54c8df28
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
-@@ -0,0 +1,306 @@
+@@ -0,0 +1,304 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -1151,7 +1151,6 @@ index 000000000000..57862f6703f8
 +bool in_hyp_mode(void);
 +unsigned long read_cr3(void);
 +int is_guest_ro(u64 addr, size_t);
-+void lock_guest_mem(struct kvm_vcpu *vcpu, u64 eptp);
 +void init_guest_smm_dma(void *);
 +int check_donation_whitelist(u64 addr, size_t size);
 +unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr, u64 *, int *);
@@ -1167,7 +1166,6 @@ index 000000000000..57862f6703f8
 +static __maybe_unused bool in_hyp_mode(void) { return false; }
 +static __maybe_unused unsigned long read_cr3(void) { return ~0; }
 +static __maybe_unused int is_guest_ro(u64 addr) { return 0; };
-+static __maybe_unised void lock_guest_mem(struct kvm_vcpu *vcpu, u64 eptp) { return; };
 +static __maybe_unused void init_guest_smm_dma(const void *) { };
 +static __maybe_unused int check_donation_whitelist(u64 addr, size_t size) { return 0; }
 +static __maybe_unused unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr, u64 *, int*)

@@ -865,6 +865,7 @@ polkitd
 procps
 publicsuffix
 python-babel-localedata
+python-is-python3
 python3
 python3-alabaster
 python3-babel

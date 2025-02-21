@@ -40,9 +40,11 @@ if [ ! -d "$BUILD_SYSROOT_DIR" ]; then
 	# RO mount crosvm and install dev deps
 	mkdir -p "${BUILD_SYSROOT_DIR}/crosvm"
 	sudo mount --bind -o ro "${BASE_DIR}/crosvm" "${BUILD_SYSROOT_DIR}/crosvm"
+
 	# the toolchain installation needs running through some hoops...
 	sysroot_run_commands "$BUILD_SYSROOT_DIR" \
-		"ln -sf /crosvm/rust-toolchain rust-toolchain; \
+		"set -e; \
+		ln -sf /crosvm/rust-toolchain rust-toolchain; \
 		ln -fs /usr/share/zoneinfo/Europe/Helsinki /etc/localtime;
 		/crosvm/tools/setup; \
 		rm rust-toolchain;

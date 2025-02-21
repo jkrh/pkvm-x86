@@ -10,7 +10,7 @@ SCRIPT_DIR=$(dirname "$(realpath "$0")")
 
 usage() {
 	cat <<EOF
-Usage: $0 SCRIPT
+Usage: $0 [OPTS] SCRIPT [ARGS]
 
 Execute build script in an isolated sysroot.
 
@@ -45,6 +45,7 @@ elif [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 fi
 
 export SCRIPT=$1
+
 # Remove optional extension
 COMPONENT=$(basename "$SCRIPT")
 COMPONENT=${COMPONENT%.*}
@@ -77,6 +78,8 @@ sysroot_set_trap build_sysroot_unmount_all
 build_sysroot_mount_all
 
 sysroot_run_commands "$BUILD_SYSROOT_DIR" \
-	"cd /build/; export BASE_DIR=\$(pwd);  \
-	exec \"$SCRIPT\"
+	"set -x
+	cd /build/
+	export BASE_DIR=\$(pwd)
+	exec $(printf '%q ' "$@")
 	"

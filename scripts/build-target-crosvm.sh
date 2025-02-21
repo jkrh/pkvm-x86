@@ -2,6 +2,11 @@
 
 export CROSVM_DIR=$BASE_DIR/crosvm
 
+if [ ! -d "$CROSVM_DIR" ]; then
+	>&2 echo "CROSVM_DIR does not exist"
+	exit 1
+fi
+
 cd "$CROSVM_DIR" || exit 1
 
 git submodule update --init || true

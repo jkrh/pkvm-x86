@@ -47,10 +47,10 @@ sysroot_unmount_all() {
 
 	echo "Unmount all binding dirs"
 
-	sysroot_do_unmount "$1/build/scripts"
-	sysroot_do_unmount "$1/build"
-	sysroot_do_unmount "$1/proc" -l
-	sysroot_do_unmount "$1/dev" -Rl
+	sysroot_do_unmount "$1/build/scripts" -l || true
+	sysroot_do_unmount "$1/build" -l || true
+	sysroot_do_unmount "$1/proc" -l || true
+	sysroot_do_unmount "$1/dev" -Rl || true
 }
 
 # usage: sysroot_run CMD ARGS

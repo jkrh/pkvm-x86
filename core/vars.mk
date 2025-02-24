@@ -21,3 +21,5 @@ export BUILD_SYSROOT_DIR=$(BASE_DIR)/ubuntu
 export UBUNTU_BASE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.1-base-amd64.tar.gz
 export UBUNTU_PKGLIST=$(BASE_DIR)/scripts/package.list.24
 export BUILD_WRAPPER=$(BASE_DIR)/scripts/sysroot-wrapper.sh
+
+export QEMU_VARIABLES_WHITELIST=OPENGL SPICE SDL VIRGL DEBUG

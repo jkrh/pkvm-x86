@@ -54,6 +54,11 @@ sysroot_unmount_all() {
 }
 
 # usage: sysroot_run CMD ARGS
+# variables:
+#   - SYSROOT_EXTRA_VARS for passing env variables as string.
+#     Example: export SYSROOT_EXTRA_VARS="FOO=BAR BAZ='QUX QUUX'"
+#   - SYSROOT_EXTRA_VARS_ARR for passing env variables as array (when sourced)
+#     Example: declare -ag SYSROOT_EXTRA_VARS_ARR=("CORGE=GRAULT GARPLY")
 sysroot_run() {
 	local sysroot_dir=$1
 	shift 1
@@ -66,10 +71,18 @@ sysroot_run() {
 		return 1
 	fi
 
+	# Process extra env variables
+	[[ -v SYSROOT_EXTRA_VARS_ARR ]] || declare -ag SYSROOT_EXTRA_VARS_ARR
+	while IFS=$'\n' read -r line; do
+		[ -n "$line" ] && SYSROOT_EXTRA_VARS_ARR+=("$line")
+	done <<< "$(echo "$SYSROOT_EXTRA_VARS" |xargs printf '%s\n')"
+
 	# shellcheck disable=SC2046
 	sudo -E chroot "${sysroot_dir}" /usr/bin/env -i \
 		$(xargs -d'\n' < "${sysroot_dir}/etc/environment") \
 		$(locale |xargs -d'\n') \
+		`# :+ is a workaround for empty array` \
+		${SYSROOT_EXTRA_VARS_ARR[@]:+"${SYSROOT_EXTRA_VARS_ARR[@]}"} \
 		DEBIAN_FRONTEND=noninteractive \
 		HOME=/root \
 		"$@"

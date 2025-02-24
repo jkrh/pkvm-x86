@@ -60,13 +60,13 @@ target-sysroot-distclean:
 	@./scripts/create-sysroot.sh distclean
 
 target-qemu:
-	@DEBUG=1 ./scripts/build-target-qemu.sh
+	@DEBUG=1 $(BUILD_WRAPPER) ./scripts/build-target-qemu.sh
 
 target-qemu-clean:
-	@./scripts/build-target-qemu.sh clean
+	@$(BUILD_WRAPPER) ./scripts/build-target-qemu.sh clean
 
 target-qemu-distclean:
-	@./scripts/build-target-qemu.sh distclean
+	@$(BUILD_WRAPPER) ./scripts/build-target-qemu.sh distclean
 
 target-crosvm:
 	@$(BUILD_WRAPPER) ./scripts/build-target-crosvm.sh

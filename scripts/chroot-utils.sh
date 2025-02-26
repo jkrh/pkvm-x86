@@ -50,7 +50,7 @@ sysroot_unmount_all() {
 	sysroot_do_unmount "$1/build/scripts" -l || true
 	sysroot_do_unmount "$1/build" -l || true
 	sysroot_do_unmount "$1/proc" -l || true
-	sysroot_do_unmount "$1/dev" -Rl || true
+	sysroot_do_unmount "$1/dev" -R || true
 }
 
 # usage: sysroot_run CMD ARGS

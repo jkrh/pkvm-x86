@@ -1,4 +1,5 @@
 include core/vars.mk
+include platform/$(PLATFORM)/vars.mk
 
 DIRS := kernel qemu
 

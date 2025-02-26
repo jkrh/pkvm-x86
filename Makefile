@@ -28,7 +28,6 @@ gdb:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) gdb
 
 run:
-	@sudo -E chmod +666 /dev/kvm
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) run
 
 poorman:

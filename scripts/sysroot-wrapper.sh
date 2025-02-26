@@ -112,5 +112,6 @@ set_sysroot_variables
 sysroot_run_commands "$BUILD_SYSROOT_DIR" \
 	"cd /build/
 	export BASE_DIR=\$(pwd)
+	export BASE_BUILD_DIR=\$(pwd)
 	exec $(printf '%q ' "$@")
 	"

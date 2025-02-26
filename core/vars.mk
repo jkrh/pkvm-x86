@@ -3,6 +3,7 @@ $(error "Use gcc 12.3.1 or newer, see GCC bug: 103979.")
 endif
 
 export BASE_DIR := $(PWD)
+export BASE_BUILD_DIR := $(BASE_DIR)/build
 export OBJDIR := $(BASE_DIR)/.objs
 export CORE_DIR := $(BASE_DIR)/core
 export KERNEL_DIR := $(BASE_DIR)/linux

@@ -1,6 +1,6 @@
 with (import <nixpkgs> {});
 
-mkShell {
+mkShellNoCC {
   nativeBuildInputs = [
     linuxPackages.kernel
     gdb
@@ -11,6 +11,7 @@ mkShell {
     linuxPackages.kernel
     qemu_kvm
     crosvm
+    coreboot-toolchain.x64
   ];
   hardeningDisable = [ "fortify" ];
 }

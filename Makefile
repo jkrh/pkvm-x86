@@ -72,7 +72,7 @@ target-crosvm:
 	@$(BUILD_WRAPPER) ./scripts/build-target-crosvm.sh
 
 guest-kernel:
-	@./scripts/build-guest-kernel.sh
+	@CC=$(CC) ./scripts/build-guest-kernel.sh
 
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)

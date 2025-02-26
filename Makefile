@@ -90,4 +90,8 @@ guestimage:
 hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER) $(GROUP)
 
-.PHONY: all clean target-qemu run $(DIRS)
+.PHONY: all clean tools tools-clean run gdb poorman kernel kernel-clean \
+	kernel-distclean qemu qemu-clean qemu-distclean coreboot \
+	target-sysroot target-sysroot-distclean target-qemu target-qemu-clean \
+	target-qemu-distclean target-crovm target-coreboot guest-kernel \
+	guestimage hostimage $(DIRS)

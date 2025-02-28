@@ -84,7 +84,7 @@ guest-kernel:
 	@CC=$(CC) ./scripts/build-guest-kernel.sh
 
 guestimage:
-	@sudo -E ./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
+	@./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
 
 hostimage: $(BUILD_TOOLS)
 	@./scripts/create_hostimg.sh $(USER) $(GROUP)

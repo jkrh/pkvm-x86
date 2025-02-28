@@ -1,136 +1,107 @@
 #!/usr/bin/env -S bash -e
 
-export PATH=$PATH:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
-export XDG_DATA_DIRS=/usr/local/share:/usr/share
-cd "$(dirname "$0")"
-modprobe nbd max_part=8
+SCRIPT_NAME=$(realpath "$0")
+SCRIPT_DIR=$(dirname "${SCRIPT_NAME}")
 
-UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-amd64.tar.gz
-CPUS=`nproc`
+# shellcheck disable=SC1090
+. "${SCRIPT_DIR}/${SYSROOT_JAIL:-chroot}-utils.sh"
+
+# Check required env variables
+[ ! -d "$BASE_DIR" ] && sysroot_exit_error 1 "BASE_DIR does not exist"
+[ -z "$UBUNTU_BASE" ] && sysroot_exit_error 1 "UBUNTU_BASE is not set"
+[ -z "$UBUNTU_PKGLIST" ] && sysroot_exit_error 1 "UBUNTU_PKGLIST is not set"
+
+PKGLIST=$(tr '\n' ' ' < "$UBUNTU_PKGLIST")
+EXTRA_PKGLIST=
 
 USERNAME=$1
 GROUPNAME=$2
-CURDIR=$PWD
-UBUNTU_BASE=$UBUNTU_STABLE
-PKGLIST=`cat package.list.22`
 OUTFILE=ubuntuhost.qcow2
 OUTDIR=$BASE_DIR/images/host
 SIZE=20G
 
-do_unmount()
-{
-	if [[ $(findmnt -M "$1") ]]; then
-		sudo umount $1
-		if [ $? -ne 0 ]; then
-			echo "ERROR: failed to umount $1"
-			exit 1
-		fi
-	fi
-}
-
 do_cleanup()
 {
-	cd $CURDIR
-	do_unmount tmp/proc || true
-	do_unmount tmp/dev || true
-	do_unmount tmp || true
-	qemu-nbd --disconnect /dev/nbd0 || true
-	sync || true
-	if [ -f $OUTDIR/$OUTFILE ]; then
-		chown $USERNAME:$GROUPNAME $OUTDIR/$OUTFILE
+	echo "${FUNCNAME[0]}: enter"
+
+	sysroot_unmount_all "$TEMP_SYSROOT_DIR"
+
+	if [ -f "$OUTDIR/$OUTFILE" ]; then
+		sudo chown "$USERNAME:$GROUPNAME" "$OUTDIR/$OUTFILE"
 	fi
-	rmmod nbd
-	rm -rf tmp `basename $UBUNTU_BASE`
+
+	sudo rm -rf "$TEMP_SYSROOT_DIR"
 }
 
 usage() {
-	echo "$0 -o <output directory> -s <image size> | -u"
+	echo "$0 -o <output directory> -s <image size> -u <ubuntu_base> -p <pkglist>"
 }
+
+while getopts "h?u:o:s:p:e:" opt; do
+	case "$opt" in
+		h|\?)	usage
+			exit 0
+			;;
+		u)	UBUNTU_BASE=$OPTARG
+			;;
+		p)	PKGLIST=$OPTARG
+			;;
+		e)	EXTRA_PKGLIST=$OPTARG
+			;;
+		o)	OUTDIR=$OPTARG
+			;;
+		s)	SIZE=$OPTARG
+			;;
+	esac
+done
+
+# Create sysroot dir
+TEMP_SYSROOT_DIR=$(mktemp -d --tmpdir="$(pwd)/build")
+export TEMP_SYSROOT_DIR
+[ ! -d "$TEMP_SYSROOT_DIR" ] && sysroot_exit_error 1 "Tempdir $TEMP_SYSROOT_DIR creation failed"
 
 trap do_cleanup SIGHUP SIGINT SIGTERM EXIT
 
-while getopts "h?u:o:s:" opt; do
-	case "$opt" in
-	h|\?)	usage
-		exit 0
-		;;
-	u)	UBUNTU_BASE=$UBUNTU_UNSTABLE
-		;;
-	o)	OUTDIR=$OPTARG
-		;;
-	s)	SIZE=$OPTARG
-		;;
-  esac
-done
+echo "Creating sysroot"
+PACKAGES="$PKGLIST $EXTRA_PKGLIST"
+sysroot_create "$BASE_DIR" "$TEMP_SYSROOT_DIR" "$UBUNTU_BASE" "$PACKAGES"
 
-echo "Creating image.."
-qemu-img create -f qcow2 $OUTFILE $SIZE
-qemu-nbd --connect=/dev/nbd0 $OUTFILE
-parted -a optimal /dev/nbd0 mklabel gpt mkpart primary ext4 0% 100%
-sync
+echo "Configuring sysroot"
+sysroot_run_commands "$TEMP_SYSROOT_DIR" "
+	set -ex
+	update-alternatives --set iptables /usr/sbin/iptables-legacy
+	adduser --disabled-password --gecos \"\" ubuntu
+	passwd -d ubuntu
+	usermod -aG sudo ubuntu
 
-echo "Formatting & downloading.."
-mkfs.ext4 /dev/nbd0p1
-wget -c $UBUNTU_BASE
-sync
+	mkdir -p /etc/systemd/network
+	cat << EOF >> /etc/systemd/network/99-wildcard.network
+[Match]
+Name=enp0*
 
-echo "Extracting ubuntu.."
-mkdir -p tmp
-mount /dev/nbd0p1 tmp
-tar xf `basename $UBUNTU_BASE` -C tmp
-if [ ! -f $QEMU_USER ]; then
-	echo "ERROR: can't find out $QEMU_USER"
-	echo "ERROR: please run 'make target-qemu'"
-	exit 1
-fi
-
-if [ ! -f $QEMU_HOST ]; then
-	echo "ERROR: can't find out $QEMU_HOST"
-	echo "ERROR: please run 'make target-qemu'"
-	exit 1
-fi
-
-if [ ! -f $QEMU_VIRTIO_ROM ]; then
-	echo "ERROR: can't find out $QEMU_VIRTIO_ROM"
-	echo "ERROR: please run 'make target-qemu'"
-	exit 1
-fi
-mkdir -p tmp/usr/share/qemu
-
-echo "Installing packages.."
-mount --bind /dev tmp/dev
-mount -t proc none tmp/proc
-echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
-export DEBIAN_FRONTEND=noninteractive
-sudo -E chroot tmp apt-get update
-sudo -E chroot tmp apt-get -y install $PKGLIST
-sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
-sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy
-sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
-sudo -E chroot tmp passwd -d ubuntu
-sudo -E chroot tmp usermod -aG sudo ubuntu
-
-cat >>  tmp/etc/network/interfaces << EOF
-auto lo
-iface lo inet loopback
-
-auto enp0s1
-iface enp0s1 inet static
-address 192.168.7.2
-gateway 192.168.7.1
+[Network]
+DHCP=no
+Gateway=192.168.7.1
+Address=192.168.7.2/24
 EOF
+	systemctl enable systemd-networkd
+	sed 's/#DNS=/DNS=8.8.8.8/' -i /etc/systemd/resolved.conf
+	sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i /etc/ssh/sshd_config
+	"
 
-sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
-sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
+sudo make -C"$BASE_DIR/linux" INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH="$TEMP_SYSROOT_DIR" -j"$(nproc)" modules_install
 
-echo "Installing modules.."
-make -C$CURDIR/../linux INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/tmp -j$CPUS modules_install
+sysroot_unmount_all "$TEMP_SYSROOT_DIR"
+sync
 
-if [ ! -d $OUTDIR ]; then
+echo "Create image file"
+sysroot_create_image_file "$TEMP_SYSROOT_DIR" "$OUTFILE" "$SIZE"
+
+if [ ! -d "$OUTDIR" ]; then
 	echo "Creating output dir.."
-	mkdir -p $OUTDIR
+	mkdir -p "$OUTDIR"
 fi
 
-mv $OUTFILE $OUTDIR
+mv "$OUTFILE" "$OUTDIR"
 echo "Output saved at $OUTDIR/$OUTFILE"
 sync

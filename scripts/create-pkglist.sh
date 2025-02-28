@@ -6,7 +6,7 @@ SCRIPT_DIR=$(dirname "${SCRIPT_NAME}")
 # shellcheck disable=SC1090
 . "${SCRIPT_DIR}/${SYSROOT_JAIL:-chroot}-utils.sh"
 
-PACKAGES="build-essential vim sshfs gnat gnome-terminal sudo python-is-python3"
+PACKAGES="build-essential adduser openssh-server iproute2 iptables vim sshfs gnat gnome-terminal sudo python-is-python3"
 BUILD_DEPS="qemu gcc"
 PKGLIST="/build/package.list"
 

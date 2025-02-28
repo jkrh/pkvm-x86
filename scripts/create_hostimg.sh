@@ -89,6 +89,7 @@ EOF
 	sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i /etc/ssh/sshd_config
 	"
 
+echo "Installing kernel modules"
 sudo make -C"$BASE_DIR/linux" INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH="$TEMP_SYSROOT_DIR" -j"$(nproc)" modules_install
 
 sysroot_unmount_all "$TEMP_SYSROOT_DIR"

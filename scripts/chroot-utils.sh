@@ -162,6 +162,58 @@ sysroot_create() {
 		"apt-get update; apt-get -y install $pkglist"
 }
 
+# usage: sysroot_create_image_file SYSROOT_DIR FILE SIZE
+sysroot_create_image_file() {
+	local tmp_image_dir
+
+	local sysroot_dir=$1
+	local file=$2
+	local size=$3
+
+	if [ ! -d "$sysroot_dir" ]; then
+		sysroot_error "${FUNCNAME[0]}: SYSROOT_DIR does not exist"
+		return 1
+	elif [ -z "$file" ]; then
+		sysroot_error "${FUNCNAME[0]}: FILE argument is empty"
+		return 1
+	elif [ -z "$size" ]; then
+		sysroot_error "${FUNCNAME[0]}: SIZE argument is empty"
+		return 1
+	fi
+
+	tmp_image_dir=$(mktemp -d --tmpdir="$(pwd)/build")
+	[ ! -d "$tmp_image_dir" ] && sysroot_exit_error 1 "tempdir $tmp_image_dir creation failed"
+
+	sudo -E bash -ec "
+	$(declare -f sysroot_do_unmount)
+
+	create_image_cleanup() {
+		sysroot_do_unmount '$tmp_image_dir' -l || true
+		sync || true
+		qemu-nbd --disconnect /dev/nbd0 || true
+		sync || true
+		rmmod nbd || true
+		rm -rf '$tmp_image_dir'
+	}
+	trap create_image_cleanup SIGHUP SIGINT SIGTERM EXIT
+
+	modprobe nbd max_part=8
+	qemu-img create -f qcow2 '$file' '$size'
+	qemu-nbd --connect=/dev/nbd0 '$file'
+	parted -a optimal /dev/nbd0 mklabel gpt mkpart primary ext4 0% 100%
+	sync
+
+	mkfs.ext4 /dev/nbd0p1
+	sync
+
+	mount /dev/nbd0p1 '$tmp_image_dir'
+	sync
+
+	rsync -aWPHq --numeric-ids --no-compress '${sysroot_dir}/' '$tmp_image_dir'
+	sync
+	"
+}
+
 # usage: sysroot_set_trap FUNC
 sysroot_set_trap() {
 	declare -F "$1" &>/dev/null || return 1

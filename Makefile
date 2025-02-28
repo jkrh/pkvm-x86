@@ -84,10 +84,10 @@ guest-kernel:
 	@CC="$(CC)" ./scripts/build-guest-kernel.sh
 
 guestimage:
-	@./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
+	@./scripts/create-guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
 
 hostimage: $(BUILD_TOOLS)
-	@./scripts/create_hostimg.sh $(USER) $(GROUP)
+	@./scripts/create-hostimg.sh $(USER) $(GROUP)
 
 .PHONY: all clean tools tools-clean run gdb poorman kernel kernel-clean \
 	kernel-distclean qemu qemu-clean qemu-distclean coreboot \

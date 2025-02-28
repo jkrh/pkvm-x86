@@ -147,6 +147,11 @@ sysroot_create() {
 
 	wget -c "${tarball_url}" -P "${sysroot_dir}"
 	sudo tar xpf "${sysroot_dir}/$(basename "$tarball_url")" -C "${sysroot_dir}"
+
+	rm "${sysroot_dir}/$(basename "$tarball_url")"
+	chmod 755 "$sysroot_dir"
+	sudo chown root:root "$sysroot_dir"
+
 	echo "nameserver 8.8.8.8" | sudo tee "${sysroot_dir}/etc/resolv.conf" > /dev/null
 	sudo chmod a+rwx "${sysroot_dir}/tmp"
 

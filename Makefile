@@ -35,10 +35,10 @@ poorman:
 
 kernel:
 	@cp scripts/nixos_* $(KERNEL_DIR)/arch/x86/configs/
-	$(MAKE) CC=$(CC) -C$(KERNEL_DIR) -j$(NJOBS) nixos_defconfig bzImage modules
+	$(MAKE) CC="$(CC)" -C$(KERNEL_DIR) -j$(NJOBS) nixos_defconfig bzImage modules
 
 kernel-clean:
-	$(MAKE) CC=$(CC) -C$(KERNEL_DIR) -j$(NJOBS) mrproper
+	$(MAKE) CC="$(CC)" -C$(KERNEL_DIR) -j$(NJOBS) mrproper
 
 kernel-distclean:
 	cd $(KERNEL_DIR); git xlean -xfd
@@ -81,7 +81,7 @@ target-coreboot: guest-kernel
 		scripts/q35_guest_defconfig linux/arch/x86_64/boot/bzImage
 
 guest-kernel:
-	@CC=$(CC) ./scripts/build-guest-kernel.sh
+	@CC="$(CC)" ./scripts/build-guest-kernel.sh
 
 guestimage:
 	@./scripts/create_guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)

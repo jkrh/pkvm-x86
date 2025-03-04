@@ -1,5 +1,5 @@
-with (import <nixpkgs> {});
-
+{pkgs ? import <nixpkgs> {}}:
+with pkgs;
 mkShellNoCC {
   nativeBuildInputs = [
     linuxPackages.kernel

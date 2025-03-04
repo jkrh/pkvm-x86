@@ -35,10 +35,10 @@ fi
 
 if [ ! -d "$BUILD_SYSROOT_DIR" ]; then
 	sysroot_set_trap "do_umount_all"
+	mkdir -p "${BUILD_SYSROOT_DIR}/crosvm"
 	sysroot_create "$BASE_DIR" "$BUILD_SYSROOT_DIR" "$UBUNTU_BASE" "$PKGLIST"
 
 	# RO mount crosvm and install dev deps
-	mkdir -p "${BUILD_SYSROOT_DIR}/crosvm"
 	sudo mount --bind -o ro "${BASE_DIR}/crosvm" "${BUILD_SYSROOT_DIR}/crosvm"
 
 	# the toolchain installation needs running through some hoops...

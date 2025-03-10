@@ -1,4 +1,4 @@
-From 398ed812ebdeb9a855824fa8e46de0546a0f2908 Mon Sep 17 00:00:00 2001
+From 25edf45e136e8e9b2808123d7aec89e0b91cdac5 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -877,7 +877,7 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..edfa54c8df28
+index 000000000000..f9f380dfe29f
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
 @@ -0,0 +1,304 @@
@@ -1165,7 +1165,7 @@ index 000000000000..edfa54c8df28
 +#else
 +static __maybe_unused bool in_hyp_mode(void) { return false; }
 +static __maybe_unused unsigned long read_cr3(void) { return ~0; }
-+static __maybe_unused int is_guest_ro(u64 addr) { return 0; };
++static __maybe_unused int is_guest_ro(u64 addr, size_t size) { return 0; };
 +static __maybe_unused void init_guest_smm_dma(const void *) { };
 +static __maybe_unused int check_donation_whitelist(u64 addr, size_t size) { return 0; }
 +static __maybe_unused unsigned long guest_virt_to_phys(struct kvm_vcpu *vcpu, u64 cr3, u64 virt_addr, u64 *, int*)

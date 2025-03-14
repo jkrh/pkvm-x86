@@ -1,4 +1,4 @@
-From 25edf45e136e8e9b2808123d7aec89e0b91cdac5 Mon Sep 17 00:00:00 2001
+From 4514070c2620d540598592d6e663d3e7d794729b Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -62,7 +62,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kernel/cpu/pkvm.c                    |   33 +
  arch/x86/kernel/idt.c                         |    2 +-
  arch/x86/kernel/kvm.c                         |    2 +
- arch/x86/kernel/setup.c                       |    7 +
+ arch/x86/kernel/setup.c                       |    3 +
  arch/x86/kernel/traps.c                       |    9 +-
  arch/x86/kernel/vmlinux.lds.S                 |   44 +-
  arch/x86/kvm/Kconfig                          |   79 +
@@ -180,7 +180,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 20035 insertions(+), 402 deletions(-)
+ 149 files changed, 20031 insertions(+), 402 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -1767,7 +1767,7 @@ index 796e2f9e8761..9b4b4f93ef62 100644
  
  static int __init parse_no_kvmapf(char *arg)
 diff --git a/arch/x86/kernel/setup.c b/arch/x86/kernel/setup.c
-index 18a034613d94..a9283890516f 100644
+index 18a034613d94..f6e1dc63482d 100644
 --- a/arch/x86/kernel/setup.c
 +++ b/arch/x86/kernel/setup.c
 @@ -37,6 +37,7 @@
@@ -1778,18 +1778,7 @@ index 18a034613d94..a9283890516f 100644
  #include <asm/hypervisor.h>
  #include <asm/io_apic.h>
  #include <asm/kasan.h>
-@@ -822,6 +823,10 @@ dump_kernel_offset(struct notifier_block *self, unsigned long v, void *p)
- 
- void x86_configure_nx(void)
- {
-+#ifdef CONFIG_DEBUG_KERNEL
-+	__supported_pte_mask &= ~_PAGE_NX;
-+	return;
-+#endif
- 	if (boot_cpu_has(X86_FEATURE_NX))
- 		__supported_pte_mask |= _PAGE_NX;
- 	else
-@@ -1328,6 +1333,8 @@ void __init setup_arch(char **cmdline_p)
+@@ -1328,6 +1329,8 @@ void __init setup_arch(char **cmdline_p)
  #endif
  
  	unwind_init();

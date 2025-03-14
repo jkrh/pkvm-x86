@@ -1,4 +1,4 @@
-From 4514070c2620d540598592d6e663d3e7d794729b Mon Sep 17 00:00:00 2001
+From f421ee50fe235b710ce7bdf86e7984afb98adf07 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -139,14 +139,14 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/vmx/pkvm/include/pkvm_trace.h    |   29 +
  arch/x86/kvm/vmx/pkvm/pkvm_constants.c        |   26 +
  arch/x86/kvm/vmx/pkvm/pkvm_debugfs.c          |  204 ++
- arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1308 +++++++++
+ arch/x86/kvm/vmx/pkvm/pkvm_host.c             | 1313 +++++++++
  arch/x86/kvm/vmx/vmcs12.c                     |    6 +
  arch/x86/kvm/vmx/vmcs12.h                     |   16 +-
  arch/x86/kvm/vmx/vmx.c                        |  260 +-
  arch/x86/kvm/vmx/vmx.h                        |    4 +-
  arch/x86/kvm/vmx/vmx_debug.c                  |  257 ++
  arch/x86/kvm/vmx/vmx_debug.h                  |   17 +
- arch/x86/kvm/vmx/vmx_lib.h                    |  243 ++
+ arch/x86/kvm/vmx/vmx_lib.h                    |  238 ++
  arch/x86/kvm/vmx/vmx_ops.h                    |   19 +-
  arch/x86/kvm/x86.c                            |  140 +-
  arch/x86/kvm/x86.h                            |    4 +
@@ -17702,10 +17702,10 @@ index 000000000000..c6cd7f3656b0
 +}
 diff --git a/arch/x86/kvm/vmx/pkvm/pkvm_host.c b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
 new file mode 100644
-index 000000000000..d4f91e9292db
+index 000000000000..53fac8cae578
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/pkvm/pkvm_host.c
-@@ -0,0 +1,1308 @@
+@@ -0,0 +1,1313 @@
 +/*
 + * SPDX-License-Identifier: GPL-2.0
 + * Copyright (C) 2022 Intel Corporation
@@ -18165,6 +18165,8 @@ index 000000000000..d4f91e9292db
 +			    struct vmx_capability *vmx_cap)
 +{
 +	struct vcpu_vmx *vmx = &vcpu->vmx;
++	u32 cpu_based_exec_ctrl = vmcs_config_ptr->cpu_based_exec_ctrl;
++
 +	/*
 +	 * Fixed VPIDs for the host vCPUs, which implies that it could conflict
 +	 * with VPIDs from nested guests.
@@ -18178,7 +18180,10 @@ index 000000000000..d4f91e9292db
 +		vmcs_write16(VIRTUAL_PROCESSOR_ID, pkvm_host_vpid--);
 +
 +	pin_controls_set(vmx, vmcs_config_ptr->pin_based_exec_ctrl);
-+	exec_controls_set(vmx, vmcs_config_ptr->cpu_based_exec_ctrl);
++
++	cpu_based_exec_ctrl &= ~(CPU_BASED_CR3_LOAD_EXITING |
++                                CPU_BASED_CR3_STORE_EXITING);
++	exec_controls_set(vmx, cpu_based_exec_ctrl);
 +	secondary_exec_controls_set(vmx, vmcs_config_ptr->cpu_based_2nd_exec_ctrl);
 +	/* disable EPT first, will enable after EPT pgtable created */
 +	secondary_exec_controls_clearbit(vmx, SECONDARY_EXEC_ENABLE_EPT);
@@ -19771,10 +19776,10 @@ index 000000000000..df881823752e
 +#endif /* __KVM_X86_VMX_DEBUG_H */
 diff --git a/arch/x86/kvm/vmx/vmx_lib.h b/arch/x86/kvm/vmx/vmx_lib.h
 new file mode 100644
-index 000000000000..d1ec4b888769
+index 000000000000..ccc815595dfb
 --- /dev/null
 +++ b/arch/x86/kvm/vmx/vmx_lib.h
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,238 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +#ifndef __KVM_X86_VMX_LIB_H
 +#define __KVM_X86_VMX_LIB_H
@@ -19877,11 +19882,6 @@ index 000000000000..d1ec4b888769
 +	if (!(_cpu_based_2nd_exec_control &
 +				SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES))
 +		_cpu_based_exec_control &= ~CPU_BASED_TPR_SHADOW;
-+#endif
-+#ifndef CONFIG_STRICT_KERNEL_RWX
-+	/* Until pgd monitoring is in place */
-+	_cpu_based_exec_control &= ~CPU_BASED_CR3_LOAD_EXITING;
-+	_cpu_based_exec_control &= ~CPU_BASED_CR3_STORE_EXITING;
 +#endif
 +
 +	if (!(_cpu_based_exec_control & CPU_BASED_TPR_SHADOW))

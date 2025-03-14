@@ -1,4 +1,4 @@
-From f421ee50fe235b710ce7bdf86e7984afb98adf07 Mon Sep 17 00:00:00 2001
+From 94a3432d50fe43bfbab28e467816c04a4b3c9dcf Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -31,7 +31,6 @@ Signed-off-by: Kalle Marjamaki <kalle.marjamaki@unikie.com>
 Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- arch/Kconfig                                  |    6 +-
  arch/x86/Kconfig                              |   11 +
  arch/x86/coco/Makefile                        |    3 +-
  arch/x86/coco/core.c                          |   34 +
@@ -180,7 +179,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 149 files changed, 20031 insertions(+), 402 deletions(-)
+ 148 files changed, 20028 insertions(+), 399 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -269,27 +268,6 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  create mode 100644 virt/kvm/pkvm/pkvm.c
  create mode 100644 virt/kvm/pkvm/pkvm_spinlock.h
 
-diff --git a/arch/Kconfig b/arch/Kconfig
-index e959abf969ec..956a5cf4edf0 100644
---- a/arch/Kconfig
-+++ b/arch/Kconfig
-@@ -1247,13 +1247,13 @@ config RANDOMIZE_KSTACK_OFFSET_DEFAULT
- 	  boot state.
- 
- config ARCH_OPTIONAL_KERNEL_RWX
--	def_bool n
-+	def_bool y
- 
- config ARCH_OPTIONAL_KERNEL_RWX_DEFAULT
--	def_bool n
-+	def_bool y
- 
- config ARCH_HAS_STRICT_KERNEL_RWX
--	def_bool n
-+	def_bool y
- 
- config STRICT_KERNEL_RWX
- 	bool "Make kernel text and rodata read-only" if ARCH_OPTIONAL_KERNEL_RWX
 diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
 index 49cea5b81649..e3f3f333cb52 100644
 --- a/arch/x86/Kconfig

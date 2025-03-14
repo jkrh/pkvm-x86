@@ -1,4 +1,4 @@
-From abff46fda8fcfd3a2c437a00ae033c17b121b3ed Mon Sep 17 00:00:00 2001
+From 70c5fa9293e87ce8e929c2259ab1684e9866f42d Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -855,7 +855,7 @@ index 57bc74e112f2..34bea30ed806 100644
  {
 diff --git a/arch/x86/include/asm/kvm_pkvm.h b/arch/x86/include/asm/kvm_pkvm.h
 new file mode 100644
-index 000000000000..f9f380dfe29f
+index 000000000000..cce5bd6a5ea1
 --- /dev/null
 +++ b/arch/x86/include/asm/kvm_pkvm.h
 @@ -0,0 +1,304 @@
@@ -1114,10 +1114,10 @@ index 000000000000..f9f380dfe29f
 +static inline int pkvm_set_mmio_ve(struct kvm_vcpu *vcpu, unsigned long gfn) { return 0; }
 +#endif
 +
++#ifdef CONFIG_PKVM_INTEL
 +unsigned long guest_ept_lookup(struct kvm_vcpu *vcpu, u64 eptp, u64 gpa, u64 *spte, int *);
 +unsigned long guest_pgt_lookup(struct kvm_vcpu *vcpu, unsigned long vaddr);
 +
-+#ifdef CONFIG_PKVM_INTEL
 +int print_host_maps(void);
 +int print_guest_maps(struct kvm_vcpu *vcpu, dtype_t);
 +#else

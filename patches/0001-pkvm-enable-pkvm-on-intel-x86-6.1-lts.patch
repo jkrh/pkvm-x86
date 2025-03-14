@@ -1,4 +1,4 @@
-From 94a3432d50fe43bfbab28e467816c04a4b3c9dcf Mon Sep 17 00:00:00 2001
+From abff46fda8fcfd3a2c437a00ae033c17b121b3ed Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 27 Jan 2025 12:50:21 +0200
 Subject: [PATCH] pkvm: enable pkvm on intel x86, 6.1 lts
@@ -69,7 +69,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/x86/kvm/emulate.c                        |    1 +
  arch/x86/kvm/mmu.h                            |   16 +
  arch/x86/kvm/mmu/mmu.c                        |   47 +-
- arch/x86/kvm/mmu/paging_tmpl.h                |   19 +-
+ arch/x86/kvm/mmu/paging_tmpl.h                |   20 +-
  arch/x86/kvm/mmu/spte.h                       |    1 +
  arch/x86/kvm/mmu/tdp_mmu.c                    |    9 +
  arch/x86/kvm/svm/svm.c                        |    8 +-
@@ -179,7 +179,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  virt/kvm/pkvm/pkvm.c                          |   87 +
  virt/kvm/pkvm/pkvm_spinlock.h                 |   47 +
  virt/kvm/vfio.c                               |   13 +
- 148 files changed, 20028 insertions(+), 399 deletions(-)
+ 148 files changed, 20031 insertions(+), 397 deletions(-)
  create mode 100644 arch/x86/coco/pkvm/Makefile
  create mode 100644 arch/x86/coco/pkvm/pkvm.c
  create mode 100644 arch/x86/coco/pkvm/pkvmcall.S
@@ -2189,7 +2189,7 @@ index d392022dcb89..e34ac1d9bc86 100644
  			else
  				need_tlb_flush = 1;
 diff --git a/arch/x86/kvm/mmu/paging_tmpl.h b/arch/x86/kvm/mmu/paging_tmpl.h
-index 685560a45bf6..49a5498b4552 100644
+index 685560a45bf6..53a3d43b1192 100644
 --- a/arch/x86/kvm/mmu/paging_tmpl.h
 +++ b/arch/x86/kvm/mmu/paging_tmpl.h
 @@ -21,6 +21,8 @@
@@ -2226,12 +2226,11 @@ index 685560a45bf6..49a5498b4552 100644
  #else
  	#error Invalid PTTYPE value
  #endif
-@@ -387,8 +393,14 @@ static int FNAME(walk_addr_generic)(struct guest_walker *walker,
+@@ -387,8 +393,19 @@ static int FNAME(walk_addr_generic)(struct guest_walker *walker,
  			goto error;
  
  		ptep_user = (pt_element_t __user *)((void *)host_addr + offset);
--		if (unlikely(__get_user(pte, ptep_user)))
--			goto error;
++#ifdef CONFIG_PKVM_INTEL_VMXROOT_MMIO
 +		if (!in_hyp_mode()) {
 +			if (unlikely(__get_user(pte, ptep_user)))
 +				goto error;
@@ -2240,10 +2239,14 @@ index 685560a45bf6..49a5498b4552 100644
 +			if (unlikely(__get_user_hyp(vcpu, &pte, ptep_user)))
 +				goto error;
 +		}
++#else
+ 		if (unlikely(__get_user(pte, ptep_user)))
+ 			goto error;
++#endif
  		walker->ptep_user[walker->level - 1] = ptep_user;
  
  		trace_kvm_mmu_paging_element(pte, walker->level);
-@@ -941,7 +953,8 @@ static void FNAME(invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa)
+@@ -941,7 +958,8 @@ static void FNAME(invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa)
  			mmu_page_zap_pte(vcpu->kvm, sp, sptep, NULL);
  			if (is_shadow_present_pte(old_spte))
  				kvm_flush_remote_tlbs_with_address(vcpu->kvm,

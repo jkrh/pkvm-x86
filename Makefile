@@ -9,6 +9,7 @@ clean: qemu-clean kernel-clean
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."
+	@git submodule update --init --recursive uefi
 	@git submodule update --init
 
 $(TOOLDIR):
@@ -32,6 +33,12 @@ run:
 
 poorman:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
+
+shim:
+	@./scripts/build-shim.sh
+
+openfw:
+	@./scripts/build-of.sh
 
 kernel:
 	@cp scripts/nixos_* $(KERNEL_DIR)/arch/x86/configs/

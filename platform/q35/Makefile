@@ -3,12 +3,17 @@ include vars.mk
 QEMU := $(TOOLDIR)/usr/bin/qemu-system-x86_64
 KERNEL := $(KERNEL_DIR)/arch/x86_64/boot/bzImage
 VMLINUX := $(KERNEL_DIR)/vmlinux
-IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
-
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MACHINE := -machine q35,mem-merge=off -device intel-iommu,aw-bits=48,device-iotlb=on
 MEM := -m 8G
+
+ifeq ($(OPENFW),1)
+IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
+else
+IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
+endif
+
 #
 # Let's try to stay as close to the HW as possible
 #
@@ -40,14 +45,20 @@ ifeq ($(DEBUGGER),1)
 QEMUOPTS := $(QEMUOPTS) -S -s
 endif
 
-ifeq ($(BIOS),1)
-QEMUOPTS += -bios $(BASE_DIR)/build/coreboot-host.rom
-endif
-
 ifeq ($(QEMUDEBUG),1)
 QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) -serial stdio -display none"
 else
 QEMUCMD := $(QEMU) $(QEMUOPTS) -nographic
+endif
+
+ifeq ($(OPENFW),1)
+QEMUCMD := $(QEMU) $(QEMUOPTS) \
+	   -chardev stdio,id=debugcon,mux=on -device isa-debugcon,iobase=0x402,chardev=debugcon \
+	   -bios $(BASE_DIR)/build/firmware.rom
+else
+ifeq ($(BIOS),1)
+QEMUOPTS += -bios $(BASE_DIR)/build/coreboot-host.rom
+endif
 endif
 
 ifeq ($(GRAPHICS),1)

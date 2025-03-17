@@ -1,0 +1,21 @@
+HOME                    = .
+[ req ]
+x509_extensions         = v3
+distinguished_name      = req_distinguished_name
+string_mask             = utf8only
+prompt                  = no
+
+[ req_distinguished_name ]
+countryName             = FI
+stateOrProvinceName     = Uusimaa
+localityName            = Helsinki
+0.organizationName      = Example
+commonName              = Secure Boot Signing
+emailAddress            = example@example.com
+
+[ v3 ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always,issuer
+basicConstraints        = critical,CA:FALSE
+extendedKeyUsage        = codeSigning,1.3.6.1.4.1.311.10.3.6,1.3.6.1.4.1.2312.16.1.2
+nsComment               = "OpenSSL Generated Certificate"

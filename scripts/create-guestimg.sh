@@ -16,7 +16,11 @@ EXTRA_PKGLIST=
 
 USERNAME=$1
 GROUPNAME=$2
+if [ "x$EFI" = "x1" ]; then
+OUTFILE=ubuntuguest-efi.qcow2
+else
 OUTFILE=ubuntuguest.qcow2
+fi
 OUTDIR=$BASE_DIR/images/guest
 SIZE=10G
 

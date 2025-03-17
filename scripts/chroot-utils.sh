@@ -197,17 +197,39 @@ sysroot_create_image_file() {
 	}
 	trap create_image_cleanup SIGHUP SIGINT SIGTERM EXIT
 
+	set -e
+	rmmod nbd || true
 	modprobe nbd max_part=8
 	qemu-img create -f qcow2 '$file' '$size'
 	qemu-nbd --connect=/dev/nbd0 '$file'
-	parted -a optimal /dev/nbd0 mklabel gpt mkpart primary ext4 0% 100%
 	sync
+	sleep 2
 
-	mkfs.ext4 /dev/nbd0p1
-	sync
+	if [ "x$EFI" = "x1" ]; then
+		parted -s /dev/nbd0 mklabel gpt \
+			mkpart ESP fat32 1MiB 5% \
+			set 1 esp on \
+			mkpart ROOT ext4 5% 100%
+		sync
+		sleep 2
+		mkfs.vfat /dev/nbd0p1
 
-	mount /dev/nbd0p1 '$tmp_image_dir'
-	sync
+		if [ -e $PWD/build/efi/boot/efi/EFI/efi/shimx64.efi ]; then
+			mount -o uid=$(id -u),gid=$(id -g) /dev/nbd0p1 "$tmp_image_dir"
+			cp -rf $PWD/build/efi/boot/efi "$tmp_image_dir"
+			umount "$tmp_image_dir"
+		fi
+		mkfs.ext4 /dev/nbd0p2
+		sync
+		mount /dev/nbd0p2 "$tmp_image_dir"
+	else
+		parted -a optimal /dev/nbd0 mklabel gpt mkpart primary ext4 0% 100%
+		sync
+		sleep 2
+		mkfs.ext4 /dev/nbd0p1
+		mount /dev/nbd0p1 "$tmp_image_dir"
+		sync
+	fi
 
 	rsync -aWPHq --numeric-ids --no-compress '${sysroot_dir}/' '$tmp_image_dir'
 	sync

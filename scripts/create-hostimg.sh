@@ -16,7 +16,11 @@ EXTRA_PKGLIST=
 
 USERNAME=$1
 GROUPNAME=$2
+if [ "x$EFI" = "x1" ]; then
+OUTFILE=ubuntuhost-efi.qcow2
+else
 OUTFILE=ubuntuhost.qcow2
+fi
 OUTDIR=$BASE_DIR/images/host
 SIZE=20G
 

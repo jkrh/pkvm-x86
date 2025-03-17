@@ -10,3 +10,9 @@
 [submodule "coreboot"]
 	path = coreboot
 	url = https://review.coreboot.org/coreboot.git
+[submodule "uefi/shim"]
+	path = uefi/shim
+	url = https://github.com/rhboot/shim.git
+[submodule "uefi/firmware-open"]
+	path = uefi/firmware-open
+	url = https://github.com/system76/firmware-open.git

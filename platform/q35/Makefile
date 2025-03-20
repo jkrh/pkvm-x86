@@ -11,12 +11,10 @@ MEM := -m 8G
 ifeq ($(OPENFW),1)
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 else
+KERNEL := -kernel $(KERNEL_DIR)/arch/x86_64/boot/bzImage -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 endif
 
-#
-# Let's try to stay as close to the HW as possible
-#
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
 CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4 -overcommit cpu-pm=off
@@ -28,9 +26,6 @@ SPICESOCK := /tmp/host
 VDAGENT := -device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent
 SPICEOPTS := unix=on,addr=$(SPICESOCK),disable-ticketing=on,image-compression=off,streaming-video=all,playback-compression=off,disable-agent-file-xfer=off
 
-#QEMUTRACEOPTS := --trace "virtio_blk*" --trace "virtio_notify" --trace "virtio_set_status" --trace "virtio_queue_notify"
-QEMUDEBUGOPTS :=
-
 ifeq ($(DEBUGMMU),1)
 QEMUDEBUGOPTS := guest_errors,unimp,mmu
 else
@@ -38,8 +33,8 @@ QEMUDEBUGOPTS := guest_errors,unimp
 endif
 QEMUDEBUGLOG := -D $(BASE_DIR)/qemudebug.log
 
-QEMUOPTS := $(MACHINE) $(CPU) $(MEM) $(DRIVE) $(NETWORK) $(USB) -d $(QEMUDEBUGOPTS) \
-	$(QEMUDEBUGLOG) $(QEMUTRACEOPTS) $(DEBUGOPTS) -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
+QEMUOPTS := $(MACHINE) $(CPU) $(MEM) $(DRIVE) $(NETWORK) $(USB) $(KERNEL) \
+	-d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(QEMUTRACEOPTS) $(DEBUGOPTS)
 
 ifeq ($(DEBUGGER),1)
 QEMUOPTS := $(QEMUOPTS) -S -s

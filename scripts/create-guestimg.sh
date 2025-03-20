@@ -13,6 +13,7 @@ SCRIPT_DIR=$(dirname "${SCRIPT_NAME}")
 
 PKGLIST=$(grep -v "\-dev" < "$UBUNTU_PKGLIST" |tr '\n' ' ' )
 EXTRA_PKGLIST=
+HOSTBUILD=0
 
 USERNAME=$1
 GROUPNAME=$2

@@ -189,9 +189,6 @@ sysroot_create_image_file() {
 
 	create_image_cleanup() {
 		set -e
-		sysroot_do_unmount '$tmp_image_dir/sys/firmware/efi/efivars' || true
-		sync || true
-		sysroot_do_unmount '$tmp_image_dir/sys' || true
 		sysroot_do_unmount '$tmp_image_dir/boot' || true
 		sysroot_do_unmount '$tmp_image_dir' -l || true
 		sync || true
@@ -205,6 +202,7 @@ sysroot_create_image_file() {
 	set -e
 	rmmod nbd || true
 	modprobe nbd max_part=8
+	rm -rf '$file'
 	qemu-img create -f qcow2 '$file' '$size'
 	qemu-nbd --connect=/dev/nbd0 '$file'
 	sync
@@ -218,7 +216,7 @@ sysroot_create_image_file() {
 			mkpart ROOT ext4 5% 100%
 		sync
 		sleep 2
-		mkfs.vfat /dev/nbd0p1
+		mkfs.vfat -F 32 /dev/nbd0p1
 		mkfs.ext4 /dev/nbd0p2
 		sync
 		mount /dev/nbd0p2 '$tmp_image_dir'
@@ -235,38 +233,31 @@ sysroot_create_image_file() {
 	rsync -aWPHq --numeric-ids --no-compress '${sysroot_dir}/' '$tmp_image_dir'
 	sync
 
-	if [ "x$EFI" = "x1" ]; then
-		if [ ! `ls -A /sys/firmware/efi/efivars` ]; then
-			modprobe efivarfs
-			mount -t efivarfs efivarfs /sys/firmware/efi/efivars || true
-		fi
-		mount --rbind /sys '$tmp_image_dir/sys'
-		mount --rbind /sys/firmware/efi/efivars '$tmp_image_dir/sys/firmware/efi/efivars'
-		mount -o uid=$(id -u),gid=$(id -g) /dev/nbd0p1 '$tmp_image_dir/boot'
+	if [ "x$EFI" != "x1" ]; then
+		return 0
+	fi
 
-		if [ -e $PWD/build/efi/boot/efi/EFI/efi/shimx64.efi ]; then
-			cp -rf $PWD/build/efi/boot/efi '$tmp_image_dir/boot'
-			efibootmgr -c -d /dev/nbd0 -p 1 -l '\\EFI\\efi\\shimx64.efi' -L shim
-		fi
-		if [ "$HOSTBUILD" = "1" ]; then
-			sbsign 	--key $PWD/build/keydata/MOK.priv \
-				--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage \
-				--output $tmp_image_dir/boot/efi/EFI/efi/linux.efi
-		else
-			sbsign	--key $PWD/build/keydata/MOK.priv \
-				--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage \
-				--output $tmp_image_dir/boot/efi/EFI/efi/linux.efi
-		fi
-		efibootmgr -c -d /dev/nbd0 -p 1 -l '\\EFI\\efi\\linux.efi' -L linux
-		efibootmgr --bootorder 0,9,1 /dev/nbd0
+	mount -o uid=$(id -u),gid=$(id -g) /dev/nbd0p1 '$tmp_image_dir/boot'
 
-		if [ -e $PWD/build/keydata/MOK.der ]; then
-			mkdir -p '$tmp_image_dir/boot/efi/EFI/MOK'
-			mkdir -p '$tmp_image_dir/var/lib/shim-signed/mok'
-			touch '$tmp_image_dir/boot/efi/EFI/MokNew'
-			cp $PWD/build/keydata/MOK.der '$tmp_image_dir/boot/efi/EFI/MOK/'
-			cp $PWD/build/keydata/MOK.der '$tmp_image_dir/var/lib/shim-signed/mok'
-		fi
+	if [ -e $PWD/build/efi/boot/efi/EFI/efi/shimx64.efi ]; then
+		cp -rf $PWD/build/efi/boot/efi/EFI '$tmp_image_dir/boot'
+	fi
+	if [ "$HOSTBUILD" = "1" ]; then
+		sbsign 	--key $PWD/build/keydata/MOK.priv \
+			--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage \
+			--output $tmp_image_dir/boot/EFI/efi/linux.efi
+	else
+		sbsign	--key $PWD/build/keydata/MOK.priv \
+			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage \
+			--output $tmp_image_dir/boot/EFI/efi/linux.efi
+	fi
+
+	if [ -e $PWD/build/keydata/MOK.der ]; then
+		mkdir -p '$tmp_image_dir/boot/EFI/MOK'
+		mkdir -p '$tmp_image_dir/var/lib/shim-signed/mok'
+		touch '$tmp_image_dir/boot/EFI/MokNew'
+		cp $PWD/build/keydata/MOK.der '$tmp_image_dir/boot/EFI/MOK/'
+		cp $PWD/build/keydata/MOK.der '$tmp_image_dir/var/lib/shim-signed/mok'
 	fi
 	"
 }

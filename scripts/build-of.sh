@@ -17,6 +17,9 @@ fi
 
 cd $FWOPEN
 cp ../../scripts/coreboot.config models/qemu/coreboot.config
+cp ../../scripts/build.sh scripts/build.sh
+cp ../../scripts/UefiPayloadPkg.dsc edk2/UefiPayloadPkg/UefiPayloadPkg.dsc
+
 . ~/.cargo/env
 ./scripts/build.sh qemu
 cp $FWOPEN/build/qemu/firmware.rom ../../build

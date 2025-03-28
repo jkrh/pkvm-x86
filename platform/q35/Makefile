@@ -1,7 +1,6 @@
 include vars.mk
 
 QEMU := $(TOOLDIR)/usr/bin/qemu-system-x86_64
-KERNEL := $(KERNEL_DIR)/arch/x86_64/boot/bzImage
 VMLINUX := $(KERNEL_DIR)/vmlinux
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
@@ -10,15 +9,20 @@ MEM := -m 8G
 
 ifeq ($(OPENFW),1)
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
+# VIRTIO not working yet in the uefi payload, please fix
+KERNEL :=
+DRIVE := -device ich9-ahci,id=ahci \
+        -drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
+        -device ide-hd,drive=disk0,bus=ahci.0
 else
 KERNEL := -kernel $(KERNEL_DIR)/arch/x86_64/boot/bzImage -kernel $(KERNEL) -append '$(KERNEL_OPTS)'
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
+DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 endif
 
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
 CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4 -overcommit cpu-pm=off
-DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 USB := -device qemu-xhci -device usb-kbd
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 
@@ -49,6 +53,7 @@ endif
 ifeq ($(OPENFW),1)
 QEMUCMD := $(QEMU) $(QEMUOPTS) \
 	   -chardev stdio,id=debugcon,mux=on -device isa-debugcon,iobase=0x402,chardev=debugcon \
+	   -serial null -serial null -serial file:$(BASE_DIR)/coreboot.log \
 	   -bios $(BASE_DIR)/build/firmware.rom
 else
 ifeq ($(BIOS),1)
@@ -69,7 +74,7 @@ endif
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
 	@echo "Running QEMU.."
-	@$(QEMUCMD)
+	$(QEMUCMD)
 
 poorman:
 	@PROG=$(KERNEL) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \

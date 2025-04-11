@@ -1,7 +1,7 @@
 #!/bin/sh -e
 
 KEYDIR=$PWD/build/keydata
-DESTDIR=$PWD/build/efi
+DESTDIR=$PWD/build/shim
 
 if [ ! -e $KEYDIR/MOK.der ]; then
 	echo "Generating keys.."
@@ -28,4 +28,6 @@ fi
 
 cd $PWD/uefi/shim
 cp $KEYDIR/MOK.der pub.cer
-make DESTDIR=$DESTDIR EFIDIR=efi install
+cp pub.cer $PWD/uefi/firmware-open/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/pk.crt
+make clean
+make FALLBACK_VERBOSE=1 SHIM_DEBUG=1 VENDOR_CERT_FILE=pub.cer DESTDIR=$DESTDIR EFIDIR=BOOT install

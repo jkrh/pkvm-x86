@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
-export KERNEL_CMDLINE='root=/dev/sda2 console=ttyS0 mem=8G nokaslr ignore_loglevel intel_iommu=sm_on rw earlyprintk=ttyS0'
-export KERNEL_VERSION=6.1
+[ -z "$KERNEL_CMDLINE" ] && export KERNEL_CMDLINE='root=/dev/sda2 console=ttyS0 mem=8G nokaslr ignore_loglevel intel_iommu=sm_on rw earlyprintk=ttyS0'
+[ -z "$KERNEL_VERSION" ] && export KERNEL_VERSION=6.1
+[ -z "$KERNEL_GENERATION" ] && export KERNEL_GENERATION=1
+[ -z "$CONTACT_EMAIL" ] && export CONTACT_EMAIL=email@example.com
 
 # usage: sysroot_error MESSAGE
 sysroot_error() {
@@ -241,13 +243,18 @@ sysroot_create_image_file() {
 	fi
 
 	mount -o uid=$(id -u),gid=$(id -g) /dev/nbd0p1 '$tmp_image_dir/boot'
+	cp -rf $PWD/build/shim/boot/efi/EFI $tmp_image_dir/boot
 
-	if [ -e $PWD/build/shim/boot/efi/EFI/BOOT/shimx64.efi ]; then
-		cp -rf $PWD/build/shim/boot/efi/EFI '$tmp_image_dir/boot'
-	fi
+	echo 'shimx64.efi,BOOT,,This is the boot entry for BOOT' > \
+		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
+	echo 'mmx64.efi,1,Shim Project,shim,1,shim-devel@shim.org' >> \
+		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
+	iconv -f UTF-8 -t UTF-16LE $tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp > \
+		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV
+	rm -f $tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
 
 	mkdir -p $tmp_image_dir/boot/EFI/LINUX
-	echo 'LINUX.EFI,1,$KERNEL_CMDLINE,kernel,$KERNEL_VERSION,contact@my.org' > \
+	echo 'LINUX.EFI,$KERNEL_GENERATION,$KERNEL_CMDLINE,kernel,$KERNEL_VERSION,$CONTACT_EMAIL' > \
 		$tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV.tmp
 	iconv -f UTF-8 -t UTF-16LE $tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV.tmp > \
 		$tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV
@@ -263,13 +270,25 @@ sysroot_create_image_file() {
 			--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage.sbat \
 			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
 	else
-		objcopy --add-section .sbat=$PWD/scripts/kernel_sbat.csv \
+		objcopy --set-section-alignment '.sbat=512' \
+			--add-section .sbat=$PWD/scripts/kernel_sbat.csv \
+			--adjust-section-vma .sbat+50000000 \
 			$PWD/build/linux/arch/x86_64/boot/bzImage \
 			$PWD/build/linux/arch/x86_64/boot/bzImage.sbat
 		sbsign	--key $PWD/build/keydata/MOK.priv \
-			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage \
+			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage.sbat \
 			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
 	fi
+
+	sbsign  --key $PWD/build/keydata/MOK.priv \
+		--cert $PWD/build/keydata/MOK.pem $tmp_image_dir/boot/EFI/BOOT/shimx64.efi \
+		--output $tmp_image_dir/boot/EFI/BOOT/shimx64.efi.tmp
+	mv $tmp_image_dir/boot/EFI/BOOT/shimx64.efi.tmp $tmp_image_dir/boot/EFI/BOOT/shimx64.efi
+
+	sbsign  --key $PWD/build/keydata/MOK.priv \
+		--cert $PWD/build/keydata/MOK.pem $tmp_image_dir/boot/EFI/BOOT/mmx64.efi \
+		--output $tmp_image_dir/boot/EFI/BOOT/mmx64.efi.tmp
+	mv $tmp_image_dir/boot/EFI/BOOT/mmx64.efi.tmp $tmp_image_dir/boot/EFI/BOOT/mmx64.efi
 
 	if [ -e $PWD/build/keydata/MOK.der ]; then
 		cp $PWD/build/keydata/MOK.der $tmp_image_dir/boot/EFI/LINUX/

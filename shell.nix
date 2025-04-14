@@ -1,6 +1,10 @@
 {pkgs ? import <nixpkgs> {}}:
 with pkgs;
-mkShellNoCC {
+let
+  buildInputsFrom = inputs:
+  (lib.subtractLists inputs (lib.flatten (lib.catAttrs "buildInputs" inputs)));
+
+in mkShellNoCC rec {
   nativeBuildInputs = [
     linuxPackages.kernel
     gdb
@@ -13,5 +17,8 @@ mkShellNoCC {
     crosvm
     coreboot-toolchain.x64
   ];
+  # shared libraries for running
+  packages = buildInputsFrom inputsFrom;
+
   hardeningDisable = [ "fortify" ];
 }

@@ -11,6 +11,9 @@
     pkgs = import nixpkgs { inherit system; };
   in
   {
+    # Dummy default target
+    packages.${system}.default = pkgs.emptyDirectory;
+
     devShells.${system}.default = import ./shell.nix { inherit pkgs; };
   };
 }

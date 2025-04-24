@@ -17,9 +17,7 @@ DRIVE := -device ich9-ahci,id=ahci \
 	-drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
 	-device ide-hd,drive=disk0,bus=ahci.0 \
 	$(NVRAM)
-endif
-
-ifeq ($(OVMF),1)
+else ifeq ($(OVMF),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 # VIRTIO not working yet in the uefi payload, please fix
@@ -29,9 +27,7 @@ DRIVE := -device ich9-ahci,id=ahci \
 	-drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
 	-device ide-hd,drive=disk0,bus=ahci.0 \
 	$(NVRAM)
-endif
-
-ifeq ($(KERNEL),'')
+else
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 ifeq ($(BIOS),1)
@@ -87,7 +83,9 @@ endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
-	@if [ ! -e $(BASE_DIR)/OVMF_VARS.fd ] ; then cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR); fi
+ifeq ($(OVMF),1)
+	@if [[ ! -e $(BASE_DIR)/OVMF_VARS.fd ] ; then cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR); fi
+endif
 	@echo "Running QEMU.."
 	$(QEMUCMD)
 

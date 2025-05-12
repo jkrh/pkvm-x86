@@ -1,0 +1,91 @@
+From 28eb1abbc3a2a1714f2e1b9050fd6e939a2bdd21 Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Mon, 12 May 2025 12:40:48 +0300
+Subject: [PATCH] DxeCore: add guid <> load address logging
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ MdeModulePkg/Core/Dxe/Dispatcher/Dispatcher.c | 53 +++++++++++++++++++
+ 1 file changed, 53 insertions(+)
+
+diff --git a/MdeModulePkg/Core/Dxe/Dispatcher/Dispatcher.c b/MdeModulePkg/Core/Dxe/Dispatcher/Dispatcher.c
+index fed60c4882..5de79af584 100644
+--- a/MdeModulePkg/Core/Dxe/Dispatcher/Dispatcher.c
++++ b/MdeModulePkg/Core/Dxe/Dispatcher/Dispatcher.c
+@@ -385,6 +385,40 @@ CoreTrust (
+   return EFI_NOT_FOUND;
+ }
+ 
++#include <Protocol/LoadedImage.h>
++#include <Library/DebugLib.h>
++
++static BOOLEAN DxeCoreInfoPrinted = FALSE;
++
++static void printDxeCoreAddr (void)
++{
++  EFI_LOADED_IMAGE_PROTOCOL *CoreLoadedImage;
++  EFI_STATUS                LocalStatus;
++  EFI_GUID                  DxeCoreFileGuid = {0xD6A2CB7F, 0x6A18, 0x4e2f, {0xB4, 0x3B, 0x99, 0x20, 0xA7, 0x33, 0x70, 0x0A}};
++
++  if (DxeCoreInfoPrinted)
++    return;
++
++  if (gDxeCoreImageHandle != NULL) { // Ensure gDxeCoreImageHandle is valid
++    LocalStatus = gBS->HandleProtocol(
++                        gDxeCoreImageHandle, // Handle for DxeCore itself
++                        &gEfiLoadedImageProtocolGuid,
++                        (VOID **)&CoreLoadedImage
++                        );
++    if (!EFI_ERROR(LocalStatus) && CoreLoadedImage != NULL) {
++      DEBUG((EFI_D_ERROR, "EDK2_IMAGE_INFO: FileGuid=%g, ImageBase=0x%p, ImageSize=0x%x\n",
++             &DxeCoreFileGuid,
++             CoreLoadedImage->ImageBase,
++             CoreLoadedImage->ImageSize));
++      DxeCoreInfoPrinted = TRUE;
++    } else {
++      DEBUG((EFI_D_ERROR, "EDK2_DXECORE_LOG: Failed to get LoadedImage for DxeCore. Status=0x%r\n", LocalStatus));
++    }
++  } else {
++    DEBUG((EFI_D_ERROR, "EDK2_DXECORE_LOG: gDxeCoreImageHandle is NULL.\n"));
++  }
++}
++
+ /**
+   This is the main Dispatcher for DXE and it exits when there are no more
+   drivers to run. Drain the mScheduledQueue and load and start a PE
+@@ -421,6 +455,7 @@ CoreDispatcher (
+     return EFI_ALREADY_STARTED;
+   }
+ 
++  printDxeCoreAddr();
+   gDispatcherRunning = TRUE;
+ 
+   Status = CoreCreateEventEx (
+@@ -464,6 +499,24 @@ CoreDispatcher (
+                         &DriverEntry->ImageHandle
+                         );
+ 
++        if (!EFI_ERROR(Status) && DriverEntry->ImageHandle != NULL) {
++          EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
++          EFI_STATUS                LoadedImageStatus;
++
++          LoadedImageStatus = gBS->HandleProtocol(
++                                      DriverEntry->ImageHandle,
++                                      &gEfiLoadedImageProtocolGuid,
++                                      (VOID **)&LoadedImage
++                                      );
++          if (!EFI_ERROR(LoadedImageStatus)) {
++            // Print the FFS File GUID along with the ImageBase and Size
++            DEBUG((EFI_D_ERROR, "EDK2_IMAGE_INFO: FileGuid=%g, ImageBase=0x%p, ImageSize=0x%x\n",
++                   &DriverEntry->FileName, // This is the EFI_GUID *
++                   LoadedImage->ImageBase,
++                   LoadedImage->ImageSize));
++          }
++        }
++
+         //
+         // Update the driver state to reflect that it's been loaded
+         //
+-- 
+2.34.1
+

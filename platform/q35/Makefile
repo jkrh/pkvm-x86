@@ -96,4 +96,7 @@ poorman:
 		$(BASE_DIR)/scripts/poorman.sh
 
 gdb:
-	@gdb -x $(BASE_DIR)/scripts/gdb-commands $(VMLINUX)
+	@env EDK2_SOURCE_ROOT_ENV=$(BASE_DIR)/uefi/firmware-open/edk2 \
+	EDK2_PLATFORM_PACKAGE_NAME_ENV=UefiPayloadPkgX64 \
+	EDK2_BUILD_TARGET_DIR_NAME_ENV=DEBUG_COREBOOT \
+	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_edk2_symbols.py $(VMLINUX)

@@ -1,6 +1,6 @@
 [submodule "linux"]
 	path = linux
-	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+	url = https://github.com:tiiuae/pKVM-x86.git
 [submodule "qemu"]
 	path = qemu
 	url = https://github.com/qemu/qemu.git

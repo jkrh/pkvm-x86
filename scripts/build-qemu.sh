@@ -12,7 +12,8 @@ build()
 		--enable-opengl \
 		--enable-virglrenderer \
 		--enable-slirp \
-		--enable-libusb
+		--enable-libusb \
+		--disable-docs
 	make -j$NJOBS
 	make install
 }

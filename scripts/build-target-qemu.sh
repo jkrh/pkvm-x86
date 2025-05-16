@@ -81,7 +81,15 @@ do_qemu()
 	cd "$QEMU_BUILD_DIR" || return 1
 
 	# shellcheck disable=SC2086
-	../configure --prefix=/usr --target-list=x86_64-softmmu --enable-kvm $SPICE $OPENGL $SDL $VIRGL $DEBUG
+	../configure --prefix=/usr --target-list=x86_64-softmmu \
+		--enable-kvm \
+		--disable-docs \
+		$SPICE \
+		$OPENGL \
+		$SDL \
+		$VIRGL \
+		$DEBUG
+
 	make "-j$NJOBS"
 
 	cd "$QEMU_ROMS_DIR" || return 1

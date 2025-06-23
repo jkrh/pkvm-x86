@@ -1,0 +1,474 @@
+From e979b4c07f22bdb9c40c5eaeea2ecebea6f5db0d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
+Date: Wed, 18 Jun 2025 14:57:02 +0300
+Subject: [PATCH] Add support for booting pKVM protected guests
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Shares the code regions and the buffers with the guest, so that the host can
+emulate insb/outsb instructions. This is inherently insecure, and only
+for development purposes.
+
+Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
+---
+ cc_platform.c         |  78 ++++++++++++++++++
+ fw_cfg.c              |  18 ++++
+ hwsetup.c             |  16 +++-
+ include/cc_platform.h |  16 ++++
+ include/pkvm.h        | 186 ++++++++++++++++++++++++++++++++++++++++++
+ main.c                |   2 +
+ meson.build           |   1 +
+ 7 files changed, 313 insertions(+), 4 deletions(-)
+ create mode 100644 cc_platform.c
+ create mode 100644 include/cc_platform.h
+ create mode 100644 include/pkvm.h
+
+diff --git a/cc_platform.c b/cc_platform.c
+new file mode 100644
+index 0000000..9d5c74f
+--- /dev/null
++++ b/cc_platform.c
+@@ -0,0 +1,78 @@
++#include "cc_platform.h"
++#include "bios.h"
++#include "fw_cfg.h"
++#include "pkvm.h"
++#include <stdio.h>
++
++static volatile enum cc_platform cc_platform = CC_PLATFORM_NONE;
++
++int cc_platform_detect(void)
++{
++	if (pkvm_detect()) {
++		return CC_PLATFORM_PKVM;
++	}
++	return CC_PLATFORM_NONE;
++}
++
++int cc_platform_setup(void)
++{
++	cc_platform = cc_platform_detect();
++
++	switch (cc_platform) {
++		case CC_PLATFORM_PKVM:
++			// Unfortunately we need to share the text segments, so that
++			// the VMM can emulate the insb/outsb instructions
++			return pkvm_share_mem(&stext, &edata - &stext);
++		default:
++			break;
++	}
++
++	return 0;
++}
++
++int cc_platform_cleanup(void)
++{
++	switch (cc_platform) {
++		case CC_PLATFORM_PKVM:
++			return pkvm_unshare_mem(&stext, &edata - &stext);
++		default:
++			break;
++	}
++	return 0;
++}
++
++int cc_platform_fw_cfg_setup(int version)
++{
++	switch (cc_platform) {
++		case CC_PLATFORM_PKVM:
++			return version & ~FW_CFG_VERSION_DMA;
++		default:
++			break;
++	}
++	return version;
++}
++
++int cc_platform_fw_cfg_prepare_buffer(void *buf, int len)
++{
++	switch (cc_platform) {
++		case CC_PLATFORM_PKVM:
++			return pkvm_share_buffer(buf, len);
++		default:
++			break;
++	}
++
++	return 0;
++}
++
++int cc_platform_fw_cfg_complete_buffer(void *buf, int len)
++{
++	switch (cc_platform) {
++		case CC_PLATFORM_PKVM: {
++			return pkvm_unshare_buffer(buf, len);
++		}
++		default:
++			break;
++	}
++
++	return 0;
++}
+diff --git a/fw_cfg.c b/fw_cfg.c
+index f3d9605..fba5483 100644
+--- a/fw_cfg.c
++++ b/fw_cfg.c
+@@ -10,6 +10,7 @@
+ #include "multiboot.h"
+ #include "benchmark.h"
+ #include "start_info.h"
++#include "cc_platform.h"
+ 
+ extern struct hvm_start_info start_info;
+ 
+@@ -31,6 +32,8 @@ void fw_cfg_setup(void)
+ 	fw_cfg_select(FW_CFG_ID);
+ 	version = fw_cfg_readl_le();
+ 
++	version = cc_platform_fw_cfg_setup(version);
++
+ 	fw_cfg_select(FW_CFG_FILE_DIR);
+ 	n = fw_cfg_readl_be();
+ 	filecnt = n;
+@@ -112,16 +115,22 @@ void fw_cfg_dma(int control, void *buf, int len)
+ 
+ void fw_cfg_read(void *buf, int len)
+ {
++	cc_platform_fw_cfg_prepare_buffer(buf, len);
++
+ 	if (version & FW_CFG_VERSION_DMA) {
+ 		fw_cfg_dma(FW_CFG_DMA_CTL_READ, buf, len);
+ 	} else {
+ 		insb(buf, FW_CFG_DATA, len);
+ 	}
++
++	cc_platform_fw_cfg_complete_buffer(buf, len);
+ }
+ 
+ void
+ fw_cfg_read_entry(int e, void *buf, int len)
+ {
++	cc_platform_fw_cfg_prepare_buffer(buf, len);
++
+ 	if (version & FW_CFG_VERSION_DMA) {
+ 		int control;
+ 		control = (e << 16);
+@@ -132,6 +141,8 @@ fw_cfg_read_entry(int e, void *buf, int len)
+ 		fw_cfg_select(e);
+ 		insb(buf, FW_CFG_DATA, len);
+ 	}
++
++	cc_platform_fw_cfg_complete_buffer(buf, len);
+ }
+ 
+ /* Multiboot trampoline.  QEMU does the ELF parsing.  */
+@@ -184,6 +195,9 @@ static void boot_multiboot_from_fw_cfg(void)
+ 
+ 	fw_cfg_select(FW_CFG_KERNEL_ENTRY);
+ 	kernel_entry = (void *) fw_cfg_readl_le();
++
++	cc_platform_cleanup();
++
+ 	asm volatile("jmp *%2" : : "a" (0x2badb002), "b"(mb), "c"(kernel_entry));
+ 	panic();
+ }
+@@ -254,6 +268,8 @@ static void boot_pvh_from_fw_cfg(void)
+ 	fw_cfg_select(FW_CFG_KERNEL_ENTRY);
+ 	kernel_entry = (void *) fw_cfg_readl_le();
+ 
++	cc_platform_cleanup();
++
+ #ifdef BENCHMARK_HACK
+ 	/* Exit just before jumping to vmlinux, so that it is easy
+ 	 * to time/profile the firmware.
+@@ -314,5 +330,7 @@ void boot_from_fwcfg(void)
+ 		fw_cfg_read_entry(FW_CFG_INITRD_DATA, args.initrd_addr, args.initrd_size);
+ 	}
+ 
++	cc_platform_cleanup();
++
+ 	boot_bzimage(&args);
+ }
+diff --git a/hwsetup.c b/hwsetup.c
+index 250213e..022e232 100644
+--- a/hwsetup.c
++++ b/hwsetup.c
+@@ -2,6 +2,7 @@
+ #include "ioport.h"
+ #include "pci.h"
+ #include "string.h"
++#include "cc_platform.h"
+ 
+ // NOTE: this runs from ROM at 0xFFFF0000, so it is not possible to use any
+ // static data.
+@@ -116,11 +117,18 @@ bool setup_hw(void)
+ 		return false;
+ 	}
+ 
+-	// Make ram from 0xc0000-0xf0000 read-write
+-	rom_check_value = rom_check;
+-	rom_check = rom_check_value + 1;
+-	if (rom_check == rom_check_value)
++	if (cc_platform_detect() == CC_PLATFORM_NONE) {
++		// Make ram from 0xc0000-0xf0000 read-write
++		rom_check_value = rom_check;
++		rom_check = rom_check_value + 1;
++
++		if (rom_check == rom_check_value) {
++			setup_pam(bdf, pambase);
++		}
++	} else {
++		// Just skip the foreplay and setup PAM
+ 		setup_pam(bdf, pambase);
++	}
+ 
+ 	// Shadow BIOS; we're still running from 0xffff0000
+ 	memcpy(&stext, bios_start, &edata - &stext);
+diff --git a/include/cc_platform.h b/include/cc_platform.h
+new file mode 100644
+index 0000000..3d6891c
+--- /dev/null
++++ b/include/cc_platform.h
+@@ -0,0 +1,16 @@
++#ifndef BIOS_CC_PLATFORM_H
++#define BIOS_CC_PLATFORM_H
++
++enum cc_platform {
++	CC_PLATFORM_NONE,
++	CC_PLATFORM_PKVM,
++};
++
++int cc_platform_detect(void);
++int cc_platform_setup(void);
++int cc_platform_cleanup(void);
++int cc_platform_fw_cfg_setup(int version);
++int cc_platform_fw_cfg_prepare_buffer(void *buf, int len);
++int cc_platform_fw_cfg_complete_buffer(void *buf, int len);
++
++#endif /* BIOS_PLATFORM_H */
+diff --git a/include/pkvm.h b/include/pkvm.h
+new file mode 100644
+index 0000000..9bba17e
+--- /dev/null
++++ b/include/pkvm.h
+@@ -0,0 +1,186 @@
++#ifndef BIOS_PKVM_X86_H
++#define BIOS_PKVM_X86_H
++
++#include "bios.h"
++
++#define ALIGN(x, a)		__ALIGN((x), (a))
++#define ALIGN_DOWN(x, a)	__ALIGN((x) - ((a) - 1), (a))
++#define __ALIGN(x, a)		__ALIGN_MASK(x, (__typeof__(x))(a) - 1)
++#define __ALIGN_MASK(x, mask)	(((x) + (mask)) & ~(mask))
++
++#define PAGE_SIZE (4096)
++#define ALIGN_PAGE(x) ALIGN_DOWN((x), PAGE_SIZE)
++
++static inline long hypercall1(unsigned int nr, unsigned long p1)
++{
++       long ret;
++
++       asm volatile("vmcall"
++                    : "=a"(ret)
++                    : "a"(nr), "b"(p1)
++                    : "memory");
++       return ret;
++}
++
++static inline long hypercall2(unsigned int nr,
++			      unsigned long p1,
++			      unsigned long p2)
++{
++       long ret;
++
++       asm volatile("vmcall"
++                    : "=a"(ret)
++                    : "a"(nr), "b"(p1), "c"(p2)
++                    : "memory");
++       return ret;
++}
++
++static inline void touch_pages(unsigned long addr, unsigned long size)
++{
++	volatile unsigned char *p = (unsigned char *) ALIGN_PAGE(addr);
++	unsigned char dummy;
++
++	while ((uintptr_t) p < (uintptr_t) (addr + size)) {
++		dummy = *p;
++		(void) dummy;
++		p += PAGE_SIZE;
++	}
++}
++
++static inline long _pkvm_share_mem(unsigned long addr, unsigned long size)
++{
++	touch_pages(addr, size);
++	return hypercall2(21, addr, size);
++}
++
++static inline long _pkvm_unshare_mem(unsigned long addr, unsigned long size)
++{
++	return hypercall2(22, addr, size);
++}
++
++static inline int pkvm_share_mem(void *buf, unsigned long size)
++{
++	/* align down to page boundary */
++	uintptr_t buf_aligned = ALIGN_PAGE((uintptr_t) buf);
++	/* align up to page boundary */
++	unsigned long size_aligned = ALIGN(size + ((uintptr_t) buf - buf_aligned), PAGE_SIZE);
++
++	return _pkvm_share_mem((unsigned long) buf_aligned, size_aligned);
++}
++
++static inline int pkvm_unshare_mem(void *buf, unsigned long size)
++{
++	/* align down to page boundary */
++	unsigned long buf_aligned = ALIGN_PAGE((uintptr_t) buf);
++	/* round up to page boundary */
++	unsigned long size_aligned = ALIGN(size + ((uintptr_t) buf - buf_aligned), PAGE_SIZE);
++
++	return _pkvm_unshare_mem(buf_aligned, size_aligned);
++}
++
++static inline bool pkvm_buffers_intersect(uintptr_t base_a, unsigned long size_a,
++					  uintptr_t base_b, unsigned long size_b)
++{
++	return base_a < base_b + size_b && base_b < base_a + size_a;
++}
++
++// A variant that avoids sharing reserved region
++static inline long pkvm_share_mem_skip_reserved(unsigned long addr, unsigned long size)
++{
++	if (pkvm_buffers_intersect(addr, size,
++				   (uintptr_t) &stext, &edata - &stext)) {
++		return -1;
++	}
++
++	return _pkvm_share_mem(addr, size);
++}
++
++// A variant that avoids unsharing reserved region
++static inline long pkvm_unshare_mem_skip_reserved(unsigned long addr, unsigned long size)
++{
++	if (pkvm_buffers_intersect(addr, size,
++				   (uintptr_t) &stext, &edata - &stext)) {
++		return -1;
++	}
++
++	return _pkvm_unshare_mem(addr, size);
++}
++
++static inline int pkvm_share_pages(void *buf, unsigned long size)
++{
++	/* align down to page boundary */
++	unsigned long cur = ALIGN_PAGE((uintptr_t) buf);
++	/* align up to the page boundary */
++	unsigned long end = ALIGN((uintptr_t) buf + size, PAGE_SIZE);
++
++	/* number of failed shares */
++	int failed = 0;
++
++	/* share one page at a time */
++	while (cur < end) {
++		if (pkvm_share_mem_skip_reserved((unsigned long) cur, PAGE_SIZE)) {
++			failed++;
++		}
++		cur += PAGE_SIZE;
++	}
++
++	return failed;
++}
++
++static inline int pkvm_unshare_pages(void *buf, unsigned long size)
++{
++	/* align down to page boundary */
++	unsigned long cur = ALIGN_PAGE((uintptr_t) buf);
++	/* align up to the page boundary */
++	unsigned long end = ALIGN((uintptr_t) buf + size, PAGE_SIZE);
++
++	/* number of failed shares */
++	int failed = 0;
++
++	/* share one page at a time */
++	while (cur < end) {
++		if (pkvm_unshare_mem_skip_reserved((unsigned long) cur, PAGE_SIZE)) {
++			failed++;
++		}
++		cur += PAGE_SIZE;
++	}
++
++	return failed;
++}
++
++static inline int pkvm_share_buffer(void *buf, unsigned long size)
++{
++	return pkvm_share_pages(buf, size);
++}
++
++static inline int pkvm_unshare_buffer(void *buf, unsigned long size)
++{
++	return pkvm_unshare_pages(buf, size);
++}
++
++static inline bool pkvm_detect(void)
++{
++	uint32_t eax, signature[3];
++
++	asm("cpuid"
++	    : "=a" (eax),
++	      "=b" (signature[0]),
++	      "=c" (signature[1]),
++	      "=d" (signature[2])
++	    : "0" (0x40000000), "2" (0));
++
++	/* We need to jump through some hoops here. Some memory regions are
++	 * not accessible when this is called, so we cannot directly memcmp
++	 * the signature with the string "PKVMPKVMPKVM".
++	 *
++	 * "PKVM" = 0x4d564b50
++	 */
++	for (int i = 0; i < ARRAY_SIZE(signature); i++) {
++		if (signature[i] != 0x4d564b50)
++			return false;
++	}
++
++	return true;
++}
++
++#endif /* BIOS_PKVM_X86 */
+diff --git a/main.c b/main.c
+index afa2200..64e5f27 100644
+--- a/main.c
++++ b/main.c
+@@ -8,6 +8,7 @@
+ #include "pci.h"
+ #include "benchmark.h"
+ #include "smbios.h"
++#include "cc_platform.h"
+ 
+ static void set_realmode_int(int vec, void *p)
+ {
+@@ -94,6 +95,7 @@ int __attribute__ ((section (".text.startup"))) main(void)
+ 	if (have_pci) {
+ 		setup_pci();
+ 	}
++	cc_platform_setup();
+ 	setup_idt();
+ 	fw_cfg_setup();
+ 	extract_acpi();
+diff --git a/meson.build b/meson.build
+index d060f75..35c1bec 100644
+--- a/meson.build
++++ b/meson.build
+@@ -23,6 +23,7 @@ link_args += cc.get_supported_link_arguments(['-no-pie'])
+ elf = executable(
+   'bios.bin.elf',
+   files(
++    'cc_platform.c',
+     'code16.c',
+     'code32seg.c',
+     'cstart.S',
+-- 
+2.49.0
+

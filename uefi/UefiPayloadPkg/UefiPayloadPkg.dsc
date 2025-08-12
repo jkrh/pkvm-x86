@@ -113,7 +113,7 @@
   DEFINE TPM_ENABLE                   = FALSE
 
 [BuildOptions]
-  *_*_*_CC_FLAGS                 = -D DISABLE_NEW_DEPRECATED_INTERFACES
+  *_*_*_CC_FLAGS                 = -D DISABLE_NEW_DEPRECATED_INTERFACES -fno-lto
   GCC:*_UNIXGCC_*_CC_FLAGS       = -DMDEPKG_NDEBUG
   GCC:RELEASE_*_*_CC_FLAGS       = -DMDEPKG_NDEBUG
   INTEL:RELEASE_*_*_CC_FLAGS     = /D MDEPKG_NDEBUG
@@ -179,7 +179,7 @@
 !endif
 
 !if $(UNIVERSAL_PAYLOAD) == TRUE
-  HobLib|UefiPayloadPkg/Library/DxeHobLib/DxeHobLib.inf
+  HobLib|UefiPayloadPkg/Library/DxeHobListLib/DxeHobListLib.inf
 !else
   HobLib|MdePkg/Library/DxeHobLib/DxeHobLib.inf
 !endif
@@ -385,10 +385,14 @@
 
 [PcdsFixedAtBuild]
   # UEFI spec: Minimal value is 0x8000!
-  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x8000
-  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize|0x8800
-  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize|0x10000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize|0x20000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize|0x10000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareSize|0x10000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0xF000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize|0xF000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0xF000
+  
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize|0x40000
   gEfiMdeModulePkgTokenSpaceGuid.PcdVpdBaseAddress|0x0
   gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseMemory|FALSE
   gEfiMdeModulePkgTokenSpaceGuid.PcdUse1GPageTable|TRUE
@@ -454,6 +458,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity|$(UART_DEFAULT_PARITY)
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits|$(UART_DEFAULT_STOP_BITS)
   gEfiMdePkgTokenSpaceGuid.PcdDefaultTerminalType|$(DEFAULT_TERMINAL_TYPE)
+
   gEfiMdeModulePkgTokenSpaceGuid.PcdAriSupport
   gEfiMdeModulePkgTokenSpaceGuid.PcdMrIovSupport
   gEfiMdeModulePkgTokenSpaceGuid.PcdSrIovSupport
@@ -507,6 +512,7 @@
 #
 ################################################################################
 
+[Components]
 !if "IA32" in "$(ARCH)"
   [Components.IA32]
   !if $(UNIVERSAL_PAYLOAD) == TRUE
@@ -579,6 +585,7 @@
   MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
 !endif
   PcAtChipsetPkg/PcatRealTimeClockRuntimeDxe/PcatRealTimeClockRuntimeDxe.inf
+
 !if $(EMU_VARIABLE_ENABLE) == TRUE
   MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe.inf
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf {
@@ -619,6 +626,7 @@
   #
   # PCI Support
   #
+!if $(VIRTIO_BUILD) == TRUE
   MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
   OvmfPkg/Library/PciHostBridgeUtilityLib/PciHostBridgeUtilityLib.inf
   MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
@@ -627,12 +635,14 @@
       PciHostBridgeUtilityLib|OvmfPkg/Library/PciHostBridgeUtilityLib/PciHostBridgeUtilityLib.inf
       PciHostBridgeLib|OvmfPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
   }
-  #MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
-  #  <LibraryClasses>
-  #    PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
-  #}
+  MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
+    <LibraryClasses>
+      PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
+  }
+!else
   UefiPayloadPkg/PciRootBridgeNoEnumerationDxe/PciRootBridgeNoEnumeration.inf
   UefiPayloadPkg/PciBusNoEnumerationDxe/PciBusNoEnumeration.inf
+!endif
 
   #
   # SCSI/ATA/IDE/DISK Support
@@ -664,6 +674,8 @@
   MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
+  MdeModulePkg/Bus/Usb/UsbNetwork/NetworkCommon/NetworkCommon.inf
+  MdeModulePkg/Bus/Usb/UsbNetwork/UsbRndis/UsbRndis.inf
 
   #
   # ISA Support
@@ -793,3 +805,4 @@
   }
 
 !endif
+

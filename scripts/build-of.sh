@@ -3,6 +3,14 @@
 FWOPEN=$PWD/uefi/firmware-open
 XGXX=$FWOPEN/coreboot/util/crossgcc/xgcc
 
+if [ "x$1" = "xclean" ]; then
+	cd $FWOPEN/coreboot; make distclean; cd -
+	rm -rf $FWOPEN/coreboot/build/*
+	rm -rf $FWOPEN/edk2/Build/*
+	rm -rf build/*.rom
+	exit 0
+fi
+
 if [ ! -d "$XGXX" ]; then
 	cd $FWOPEN/coreboot
 	make crossgcc CPUS=$(nproc)
@@ -17,9 +25,8 @@ fi
 
 cd $FWOPEN
 cp ../../scripts/coreboot.config models/qemu/coreboot.config
-cp ../../scripts/build.sh scripts/build.sh
-cp ../../scripts/UefiPayloadPkg.dsc edk2/UefiPayloadPkg/UefiPayloadPkg.dsc
-cp ../../scripts/UefiPayloadPkg.fdf edk2/UefiPayloadPkg/UefiPayloadPkg.fdf
+cp ../../uefi/UefiPayloadPkg/build.sh scripts/build.sh
+cp ../../uefi/UefiPayloadPkg/* edk2/UefiPayloadPkg/
 
 . ~/.cargo/env
 ./scripts/build.sh qemu

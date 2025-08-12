@@ -5,14 +5,16 @@ VMLINUX := $(KERNEL_DIR)/vmlinux
 KERNEL := -kernel $(KERNEL_DIR)/arch/x86_64/boot/bzImage -append '$(KERNEL_OPTS)'
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
-MACHINE := -machine q35,mem-merge=off -device intel-iommu,aw-bits=48,device-iotlb=on
 MEM := -m 8G
 
+# VIRTIO not working yet in the uefi payload, please fix
 ifeq ($(OPENFW),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
-# VIRTIO not working yet in the uefi payload, please fix
-NVRAM := -bios $(BASE_DIR)/build/firmware.rom
+# QEMU Q35 model has 16MB firmware limit max or it will overlap with the io-apic
+MACHINEOPTS := smm=on,max-fw-size=16M
+# SMMSTORE is in the firmware.rom. Remember to clean.
+NVRAM := -drive if=pflash,format=raw,unit=0,file=$(BASE_DIR)/build/firmware.rom,readonly=off
 DRIVE := -device ich9-ahci,id=ahci \
 	-drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
 	-device ide-hd,drive=disk0,bus=ahci.0 \
@@ -22,7 +24,7 @@ KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 # VIRTIO not working yet in the uefi payload, please fix
 NVRAM := -drive if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE.fd,readonly=on \
-	-drive if=pflash,format=raw,unit=1,file=$(BASE_DIR)/OVMF_VARS.fd
+	-drive if=pflash,format=raw,unit=1,file=$(BASE_DIR)/build/OVMF_VARS.fd
 DRIVE := -device ich9-ahci,id=ahci \
 	-drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
 	-device ide-hd,drive=disk0,bus=ahci.0 \
@@ -35,6 +37,7 @@ QEMUOPTS += -bios $(BASE_DIR)/build/coreboot-host.rom
 endif
 endif
 
+MACHINE := -machine q35,mem-merge=off,$(MACHINEOPTS) -device intel-iommu,aw-bits=48,device-iotlb=on
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
 CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4 -overcommit cpu-pm=off
@@ -83,11 +86,12 @@ endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
-ifeq ($(OVMF),1)
-	@if [[ ! -e $(BASE_DIR)/OVMF_VARS.fd ] ; then cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR); fi
-endif
-	@echo "Running QEMU.."
+	echo "Running QEMU.."
 	$(QEMUCMD)
+
+clean:
+	@rm -rf $(BASE_DIR)/OVMF_VARS.fd
+	@rm -rf $(BASE_DIR)/build/firmware.rom
 
 poorman:
 	@PROG=$(KERNEL) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \

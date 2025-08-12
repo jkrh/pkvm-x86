@@ -34,11 +34,17 @@ run:
 poorman:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
+clean-vars:
+	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) clean
+
 shim:
 	@./scripts/build-shim.sh
 
 openfw:
 	@./scripts/build-of.sh
+
+openfw-clean:
+	@./scripts/build-of.sh clean
 
 kernel:
 	@cp scripts/nixos_* $(KERNEL_DIR)/arch/x86/configs/

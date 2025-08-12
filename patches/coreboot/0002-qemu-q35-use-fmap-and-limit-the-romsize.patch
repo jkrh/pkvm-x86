@@ -1,0 +1,57 @@
+From 0ec89e0bc69fc4d6cfeb482c983ff3566fb11bf7 Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Fri, 8 Aug 2025 10:58:58 +0300
+Subject: [PATCH 2/2] qemu/q35: use fmap and limit the romsize
+
+Q35 can't handle larger romsize due to clash with apic,
+so lower the limits and use proper fmap with smmstore.
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ src/mainboard/emulation/qemu-q35/Kconfig  | 10 +++++++++-
+ src/mainboard/emulation/qemu-q35/fmap.fmd |  5 +++++
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+ create mode 100644 src/mainboard/emulation/qemu-q35/fmap.fmd
+
+diff --git a/src/mainboard/emulation/qemu-q35/Kconfig b/src/mainboard/emulation/qemu-q35/Kconfig
+index 2fb180b7ec..bb1d691911 100644
+--- a/src/mainboard/emulation/qemu-q35/Kconfig
++++ b/src/mainboard/emulation/qemu-q35/Kconfig
+@@ -10,7 +10,7 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select HAVE_OPTION_TABLE
+ #	select HAVE_PIRQ_TABLE
+ 	select HAVE_ACPI_TABLES
+-	select BOARD_ROMSIZE_KB_16384
++	select BOARD_ROMSIZE_KB_8192
+ 	select MAINBOARD_HAS_NATIVE_VGA_INIT
+ 	select MAINBOARD_FORCE_NATIVE_VGA_INIT if !CHROMEOS
+ 	select MEMORY_MAPPED_TPM
+@@ -19,6 +19,14 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select BOOT_DEVICE_MEMORY_MAPPED
+ 	select BOOT_DEVICE_SUPPORTS_WRITES
+ 
++config USE_FMAP_FILE
++	bool
++	default y
++
++config FMDFILE
++	string
++	default "src/mainboard/emulation/qemu-q35/fmap.fmd" if USE_FMAP_FILE
++
+ config VBOOT
+ 	select VBOOT_MUST_REQUEST_DISPLAY
+ 	select VBOOT_STARTS_IN_BOOTBLOCK
+diff --git a/src/mainboard/emulation/qemu-q35/fmap.fmd b/src/mainboard/emulation/qemu-q35/fmap.fmd
+new file mode 100644
+index 0000000000..eb45981ee0
+--- /dev/null
++++ b/src/mainboard/emulation/qemu-q35/fmap.fmd
+@@ -0,0 +1,5 @@
++FLASH 8M {
++	FMAP 64K
++	SMMSTORE(PRESERVE) 256K
++	COREBOOT(CBFS)
++}
+-- 
+2.34.1
+

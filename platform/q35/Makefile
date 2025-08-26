@@ -92,7 +92,8 @@ endif
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
 	echo "Running QEMU.."
-	$(QEMUCMD)
+	-$(QEMUCMD)
+	@cp -rf $(BASE_DIR)/tty2.log $(BASE_DIR)/debug.log
 
 clean:
 	@rm -rf $(BASE_DIR)/OVMF_VARS.fd
@@ -104,7 +105,13 @@ poorman:
 		$(BASE_DIR)/scripts/poorman.sh
 
 gdb:
+ifeq ($(EDK2DEBUG),1)
 	@env EDK2_SOURCE_ROOT_ENV=$(BASE_DIR)/uefi/firmware-open/edk2 \
 	EDK2_PLATFORM_PACKAGE_NAME_ENV=UefiPayloadPkgX64 \
 	EDK2_BUILD_TARGET_DIR_NAME_ENV=DEBUG_COREBOOT \
+	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_edk2_symbols.py -ex "rebuild-edk2-guidmap $(BASE_DIR)/debug.log"
+else
 	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_edk2_symbols.py $(VMLINUX)
+endif
+
+.PHONY := gdb clean run poorman

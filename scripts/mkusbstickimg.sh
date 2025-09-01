@@ -3,6 +3,7 @@ set -e
 
 IMG_FILE=$1
 IMG_SIZE=$2
+UEFI_BOOT_APP=$3
 VOLUME_LABEL="12345"
 
 echo "Creating clean ${IMG_SIZE}MB raw disk image..."
@@ -28,6 +29,15 @@ fi
 echo "Formatting partition ${LOOP_DEV}p1 with high compatibility..."
 # Format the partition with the specified label
 sudo mkfs.fat -F 32 -n "${VOLUME_LABEL}" "${LOOP_DEV}p1"
+
+if [ -f "${UEFI_BOOT_APP}" ]; then
+  mkdir ${BASE_BUILD_DIR}/usb-mnt
+  sudo mount ${LOOP_DEV}p1 ${BASE_BUILD_DIR}/usb-mnt
+  sudo mkdir -p ${BASE_BUILD_DIR}/usb-mnt/efi/boot
+  sudo cp ${UEFI_BOOT_APP} ${BASE_BUILD_DIR}/usb-mnt/efi/boot/BOOTX64.efi
+  sudo umount ${BASE_BUILD_DIR}/usb-mnt
+  rm -r ${BASE_BUILD_DIR}/usb-mnt
+fi
 
 echo "Cleaning up loopback device..."
 sudo losetup -d "${LOOP_DEV}"

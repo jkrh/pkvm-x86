@@ -7,6 +7,16 @@ WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MEM := -m 8G
 
+ifeq ($(CLEAN_USB),1)
+  $(shell rm -f $(BASE_DIR)/build/usbstick.img)
+endif
+
+ifeq ($(UEFI_SHELL),1)
+  UEFI_BOOT_APP := ${BASE_DIR}/uefi/firmware-open/edk2/Build/UefiPayloadPkgX64/DEBUG_COREBOOT/X64/Shell.efi
+else
+  UEFI_BOOT_APP := dummy
+endif
+
 # VIRTIO not working yet in the uefi payload, please fix
 ifeq ($(OPENFW),1)
 KERNEL :=
@@ -81,7 +91,8 @@ QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -s
 endif
 
 $(BASE_DIR)/build/usbstick.img:
-	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048
+	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
+	$(UEFI_BOOT_APP)
 
 run: $(BASE_DIR)/build/usbstick.img
 	@echo "------------------------------------------------------------------------------------------"

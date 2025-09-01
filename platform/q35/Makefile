@@ -20,7 +20,7 @@ DRIVE := -device ich9-ahci,id=ahci \
 	-device ide-hd,drive=disk0,bus=ahci.0 \
 	$(NVRAM)
 USBSTICK := -drive if=none,id=usbdrive,format=raw,file=$(BASE_DIR)/build/usbstick.img \
-	-device usb-storage,bus=xhci.0,drive=usbdrive
+	-device usb-storage,bus=ehci.0,drive=usbdrive
 else ifeq ($(OVMF),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
@@ -43,7 +43,7 @@ MACHINE := -machine q35,mem-merge=off,$(MACHINEOPTS) -device intel-iommu,aw-bits
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
 CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4 -overcommit cpu-pm=off
-USB := -device qemu-xhci,id=xhci -device usb-kbd $(USBSTICK)
+USB := -device ich9-usb-ehci1,id=ehci -device usb-kbd $(USBSTICK)
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 
 SPICESOCK := /tmp/host
@@ -81,7 +81,7 @@ QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -s
 endif
 
 $(BASE_DIR)/build/usbstick.img:
-	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 32
+	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048
 
 run: $(BASE_DIR)/build/usbstick.img
 	@echo "------------------------------------------------------------------------------------------"

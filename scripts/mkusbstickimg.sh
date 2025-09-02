@@ -31,6 +31,7 @@ echo "Formatting partition ${LOOP_DEV}p1 with high compatibility..."
 sudo mkfs.fat -F 32 -n "${VOLUME_LABEL}" "${LOOP_DEV}p1"
 
 if [ -f "${UEFI_BOOT_APP}" ]; then
+  echo "Adding ${UEFI_BOOT_APP} to USB media"
   mkdir ${BASE_BUILD_DIR}/usb-mnt
   sudo mount ${LOOP_DEV}p1 ${BASE_BUILD_DIR}/usb-mnt
   sudo mkdir -p ${BASE_BUILD_DIR}/usb-mnt/efi/boot

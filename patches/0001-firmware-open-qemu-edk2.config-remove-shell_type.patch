@@ -1,0 +1,27 @@
+From 35f06169ad58eb63dd2ef4586906c852e31a7175 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+Date: Tue, 2 Sep 2025 09:49:02 +0300
+Subject: [PATCH] firmware-open: qemu: edk2.config remove shell_type
+
+Set the SHELL_TYPE parameter only in the build script
+which calls edk2.sh. This is to avoid double
+configuration during build time.
+
+Signed-off-by: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+---
+ models/qemu/edk2.config | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/models/qemu/edk2.config b/models/qemu/edk2.config
+index e72d944..274a0e2 100644
+--- a/models/qemu/edk2.config
++++ b/models/qemu/edk2.config
+@@ -4,5 +4,4 @@ PLATFORM_BOOT_TIMEOUT=2
+ PS2_KEYBOARD_ENABLE=TRUE
+ SECURE_BOOT_ENABLE=TRUE
+ SERIAL_DRIVER_ENABLE=FALSE
+-SHELL_TYPE=NONE
+ TPM_ENABLE=TRUE
+-- 
+2.43.0
+

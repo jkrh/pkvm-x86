@@ -396,7 +396,6 @@ libgirepository-1.0-1:amd64
 libgirepository-2.0-0:amd64
 libgl-dev:amd64
 libgl1:amd64
-libgl1-amber-dri:amd64
 libgl1-mesa-dri:amd64
 libglapi-mesa:amd64
 libgles-dev:amd64

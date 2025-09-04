@@ -33,8 +33,8 @@ sudo touch "${MOUNT_POINT}/${MARKER_FILE}"
 # Add uefi boot app if requested
 if [ -f "${UEFI_BOOT_APP}" ]; then
   echo "Adding ${UEFI_BOOT_APP} to USB media"
-  sudo mkdir -p ${MOUNT_POINT}/usb-mnt/efi/boot
-  sudo cp ${UEFI_BOOT_APP} ${MOUNT_POINT}/usb-mnt/efi/boot/BOOTX64.efi
+  sudo mkdir -p ${MOUNT_POINT}/efi/boot
+  sudo cp ${UEFI_BOOT_APP} ${MOUNT_POINT}/efi/boot/BOOTX64.efi
 fi
 
 # Unmount and clean up

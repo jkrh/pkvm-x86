@@ -239,7 +239,7 @@ sysroot_create_image_file() {
 	sync
 
 	if [ "x$EFI" != "x1" ]; then
-		return 0
+		exit 0
 	fi
 
 	mount -o uid=$(id -u),gid=$(id -g) /dev/nbd0p1 '$tmp_image_dir/boot'

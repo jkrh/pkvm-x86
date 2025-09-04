@@ -41,7 +41,7 @@ shim:
 	@./scripts/build-shim.sh
 
 openfw:
-	@./scripts/build-of.sh
+	@BUILD_TYPE=DEBUG ./scripts/build-of.sh
 
 openfw-clean:
 	@./scripts/build-of.sh clean

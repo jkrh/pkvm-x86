@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 FWOPEN=$PWD/uefi/firmware-open
-XGXX=$FWOPEN/coreboot/util/crossgcc/xgcc
+XGXX=$FWOPEN/coreboot/util/crossgcc/xgcc/bin/x86_64-elf-gcc
 
 if [ "x$1" = "xclean" ]; then
 	cd $FWOPEN/coreboot; make distclean; cd -
@@ -11,7 +11,7 @@ if [ "x$1" = "xclean" ]; then
 	exit 0
 fi
 
-if [ ! -d "$XGXX" ]; then
+if [ ! -e "$XGXX" ]; then
 	cd $FWOPEN/coreboot
 	make crossgcc CPUS=$(nproc)
 fi
@@ -29,5 +29,5 @@ cp ../../uefi/UefiPayloadPkg/build.sh scripts/build.sh
 cp ../../uefi/UefiPayloadPkg/* edk2/UefiPayloadPkg/
 
 . ~/.cargo/env
-./scripts/build.sh qemu
+BUILD_TYPE=$BUILD_TYPE ./scripts/build.sh qemu
 cp $FWOPEN/build/qemu/firmware.rom ../../build

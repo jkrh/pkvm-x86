@@ -1,0 +1,51 @@
+From 6fcc13fbf643e94ae0dbac08e388663b0841ca56 Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Thu, 4 Sep 2025 12:50:09 +0300
+Subject: [PATCH] build: fix several uses of uninitialized variables
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ MdeModulePkg/Application/UiApp/FrontPage.c                    | 4 ++--
+ .../Library/SecureBootVariableLib/SecureBootVariableLib.c     | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/MdeModulePkg/Application/UiApp/FrontPage.c b/MdeModulePkg/Application/UiApp/FrontPage.c
+index e4683d9d2a..f5de662d72 100644
+--- a/MdeModulePkg/Application/UiApp/FrontPage.c
++++ b/MdeModulePkg/Application/UiApp/FrontPage.c
+@@ -749,7 +749,7 @@ CHAR8 RSDT_SIGNATURE[4] = {'R', 'S', 'D', 'T'};
+ 
+ STATIC ACPI_SDT_HEADER* FindAcpiTable(CHAR8 Name[4]) {
+   UINTN                    Index;
+-  EFI_CONFIGURATION_TABLE* ConfigurationTable;
++  EFI_CONFIGURATION_TABLE* ConfigurationTable = NULL;
+   UINTN                    RsdpPtr;
+   ACPI_RSDP*               Rsdp;
+   UINTN                    RsdtPtr;
+@@ -1088,7 +1088,7 @@ UpdateFrontPageBannerStrings (
+   EFI_PHYSICAL_ADDRESS              *Table;
+   SMBIOS_TABLE_ENTRY_POINT          *EntryPoint;
+   SMBIOS_STRUCTURE_POINTER          SmbiosTable;
+-  BOOLEAN                           CheckWebcam;
++  BOOLEAN                           CheckWebcam = FALSE;
+ 
+   FirmwareConfigurationInformation();
+   WarnNoBootableMedia ();
+diff --git a/SecurityPkg/Library/SecureBootVariableLib/SecureBootVariableLib.c b/SecurityPkg/Library/SecureBootVariableLib/SecureBootVariableLib.c
+index ff65184713..e6ded01b6a 100644
+--- a/SecurityPkg/Library/SecureBootVariableLib/SecureBootVariableLib.c
++++ b/SecurityPkg/Library/SecureBootVariableLib/SecureBootVariableLib.c
+@@ -134,8 +134,8 @@ SecureBootFetchData (
+ )
+ {
+   EFI_SIGNATURE_LIST *EfiSig;
+-  EFI_SIGNATURE_LIST *TmpEfiSig;
+-  EFI_SIGNATURE_LIST *TmpEfiSig2;
++  EFI_SIGNATURE_LIST *TmpEfiSig = NULL;
++  EFI_SIGNATURE_LIST *TmpEfiSig2 = NULL;
+   EFI_STATUS         Status;
+   VOID               *Buffer;
+   VOID               *RsaPubKey;
+-- 
+2.34.1
+

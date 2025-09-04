@@ -37,6 +37,7 @@ EDK2_TARGET_ARCH = "X64"
 
 # List of EDK2 package names (relative to EDK2_SOURCE_ROOT) to scan for .inf files.
 EDK2_PACKAGE_NAMES_TO_SCAN_DEFAULTS = [
+    "UefiPayloadPkg",
     "MdeModulePkg",
     "MdePkg",
     # EDK2_PLATFORM_PACKAGE_NAME will be added dynamically

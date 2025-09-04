@@ -33,7 +33,6 @@ mkdir -p "${BUILD}"
 UEFIPAYLOAD="${BUILD}/UEFIPAYLOAD.fd"
 COREBOOT="${BUILD}/firmware.rom"
 EDK2_ARGS=(
-    -D BUILD_SHELL=TRUE
     -D SHELL_TYPE=BUILD_SHELL
     -D SOURCE_DEBUG_ENABLE=FALSE
     -D VIRTIO_BUILD=FALSE
@@ -42,6 +41,7 @@ EDK2_ARGS=(
     -D SYSTEM76_EC_LOGGING=FALSE
     -D BOOTLOADER=COREBOOT
     -D MODEL=$MODEL
+    -D BUILD_TYPE=${BUILD_TYPE}
 )
 
 # Rebuild firmware-setup (used by edk2)
@@ -75,7 +75,7 @@ fi
 
 # Rebuild UefiPayloadPkg using edk2
 PACKAGES_PATH="${MODEL_DIR}:$(realpath apps)" \
-    ./scripts/_build/edk2.sh \
+    BUILD_TYPE=${BUILD_TYPE} ./scripts/_build/edk2.sh \
         "${UEFIPAYLOAD}" \
         "${EDK2_ARGS[@]}"
 

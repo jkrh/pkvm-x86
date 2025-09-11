@@ -25,10 +25,6 @@ IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 MACHINEOPTS := smm=on,max-fw-size=16M
 # SMMSTORE is in the firmware.rom. Remember to clean.
 NVRAM := -drive if=pflash,format=raw,unit=0,file=$(BASE_DIR)/build/firmware.rom,readonly=off
-DRIVE := -device ich9-ahci,id=ahci \
-	-drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
-	-device ide-hd,drive=disk0,bus=ahci.0 \
-	$(NVRAM)
 USBSTICK := -drive if=none,id=usbdrive,format=raw,file=$(BASE_DIR)/build/usbstick.img \
 	-device usb-storage,bus=ehci.0,drive=usbdrive
 else ifeq ($(OVMF),1)
@@ -37,10 +33,6 @@ IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 # VIRTIO not working yet in the uefi payload, please fix
 NVRAM := -drive if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE.fd,readonly=on \
 	-drive if=pflash,format=raw,unit=1,file=$(BASE_DIR)/build/OVMF_VARS.fd
-DRIVE := -device ich9-ahci,id=ahci \
-	-drive file=$(IMAGE),if=none,id=disk0,format=qcow2 \
-	-device ide-hd,drive=disk0,bus=ahci.0 \
-	$(NVRAM)
 else
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
@@ -49,6 +41,7 @@ QEMUOPTS += -bios $(BASE_DIR)/build/coreboot-host.rom
 endif
 endif
 
+DRIVE := -drive file=$(IMAGE),if=none,id=nvm -device nvme,serial=deadbeef,drive=nvm $(NVRAM)
 MACHINE := -machine q35,mem-merge=off,$(MACHINEOPTS) -device intel-iommu,aw-bits=48,device-iotlb=on
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi

@@ -249,16 +249,11 @@ sysroot_create_image_file() {
 		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
 	echo 'mmx64.efi,1,Shim Project,shim,1,shim-devel@shim.org' >> \
 		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
+	echo 'LINUX.EFI,$KERNEL_GENERATION,$KERNEL_CMDLINE,kernel,$KERNEL_VERSION,$CONTACT_EMAIL' >> \
+		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
 	iconv -f UTF-8 -t UTF-16LE $tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp > \
 		$tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV
 	rm -f $tmp_image_dir/boot/EFI/BOOT/BOOTX64.CSV.tmp
-
-	mkdir -p $tmp_image_dir/boot/EFI/LINUX
-	echo 'LINUX.EFI,$KERNEL_GENERATION,$KERNEL_CMDLINE,kernel,$KERNEL_VERSION,$CONTACT_EMAIL' > \
-		$tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV.tmp
-	iconv -f UTF-8 -t UTF-16LE $tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV.tmp > \
-		$tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV
-	rm -f $tmp_image_dir/boot/EFI/LINUX/BOOTX64.CSV.tmp
 
 	if [ "$HOSTBUILD" = "1" ]; then
 		objcopy --set-section-alignment '.sbat=512' \
@@ -268,7 +263,7 @@ sysroot_create_image_file() {
 			$PWD/linux/arch/x86_64/boot/bzImage.sbat
 		sbsign 	--key $PWD/build/keydata/MOK.priv \
 			--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage.sbat \
-			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
+			--output $tmp_image_dir/boot/EFI/BOOT/LINUX.EFI
 	else
 		objcopy --set-section-alignment '.sbat=512' \
 			--add-section .sbat=$PWD/scripts/kernel_sbat.csv \
@@ -277,7 +272,7 @@ sysroot_create_image_file() {
 			$PWD/build/linux/arch/x86_64/boot/bzImage.sbat
 		sbsign	--key $PWD/build/keydata/MOK.priv \
 			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage.sbat \
-			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
+			--output $tmp_image_dir/boot/EFI/BOOT/LINUX.EFI
 	fi
 
 	sbsign  --key $PWD/build/keydata/MOK.priv \
@@ -291,7 +286,7 @@ sysroot_create_image_file() {
 	mv $tmp_image_dir/boot/EFI/BOOT/mmx64.efi.tmp $tmp_image_dir/boot/EFI/BOOT/mmx64.efi
 
 	if [ -e $PWD/build/keydata/MOK.der ]; then
-		cp $PWD/build/keydata/MOK.der $tmp_image_dir/boot/EFI/LINUX/
+		cp $PWD/build/keydata/MOK.der $tmp_image_dir/boot/EFI/BOOT/
 		mkdir -p '$tmp_image_dir/var/lib/shim-signed/mok'
 		cp $PWD/build/keydata/MOK.der '$tmp_image_dir/var/lib/shim-signed/mok'
 	fi

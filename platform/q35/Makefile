@@ -35,13 +35,12 @@ NVRAM := -drive if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE.fd,re
 	-drive if=pflash,format=raw,unit=1,file=$(BASE_DIR)/build/OVMF_VARS.fd
 else
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
-DRIVE := -drive file=$(IMAGE),if=virtio,format=qcow2
 ifeq ($(BIOS),1)
 QEMUOPTS += -bios $(BASE_DIR)/build/coreboot-host.rom
 endif
 endif
 
-DRIVE := -drive file=$(IMAGE),if=none,id=nvm -device nvme,serial=deadbeef,drive=nvm $(NVRAM)
+DRIVE := -device nvme,serial=a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6,drive=disk0 -drive file=$(IMAGE),if=none,id=disk0,format=qcow2
 MACHINE := -machine q35,mem-merge=off,$(MACHINEOPTS) -device intel-iommu,aw-bits=48,device-iotlb=on
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
@@ -60,7 +59,7 @@ QEMUDEBUGOPTS := guest_errors,unimp
 endif
 QEMUDEBUGLOG := -D $(BASE_DIR)/qemudebug.log
 
-QEMUOPTS := $(MACHINE) $(CPU) $(MEM) $(DRIVE) $(NETWORK) $(USB) $(KERNEL) \
+QEMUOPTS := $(MACHINE) $(CPU) $(MEM) $(NVRAM) $(DRIVE) $(NETWORK) $(USB) $(KERNEL) \
 	-d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(QEMUTRACEOPTS) $(DEBUGOPTS)
 
 ifeq ($(DEBUGGER),1)
@@ -95,12 +94,15 @@ endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
+	@if [ ! -e $(BASE_DIR)/build/OVMF_VARS.fd ]; \
+		then cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR)/build/OVMF_VARS.fd ; \
+	fi
 	echo "Running QEMU.."
 	-$(QEMUCMD)
 	@cp -rf $(BASE_DIR)/tty2.log $(BASE_DIR)/debug.log
 
 clean:
-	@rm -rf $(BASE_DIR)/OVMF_VARS.fd
+	@rm -rf $(BASE_DIR)/build/OVMF_VARS.fd
 	@rm -rf $(BASE_DIR)/build/firmware.rom
 	@rm -rf $(BASE_DIR)/build/usbstick.img
 

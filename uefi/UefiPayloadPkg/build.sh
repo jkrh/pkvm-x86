@@ -42,6 +42,7 @@ EDK2_ARGS=(
     -D BOOTLOADER=COREBOOT
     -D MODEL=$MODEL
     -D BUILD_TYPE=${BUILD_TYPE}
+    -D SECURE_BOOT_ENABLE=TRUE
 )
 
 # Rebuild firmware-setup (used by edk2)

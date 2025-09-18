@@ -30,4 +30,4 @@ cd $PWD/uefi/shim
 cp $KEYDIR/MOK.der pub.cer
 cp pub.cer $BASE_DIR/uefi/firmware-open/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/pk.crt
 make clean
-make FALLBACK_VERBOSE=1 SHIM_DEBUG=1 VENDOR_CERT_FILE=pub.cer DESTDIR=$DESTDIR EFIDIR=BOOT DEFAULT_LOADER='\\\\\\\\LINUX.EFI' install
+make FALLBACK_VERBOSE=1 SHIM_DEBUG=1 VENDOR_CERT_FILE=pub.cer DESTDIR=$DESTDIR EFIDIR=BOOT DEFAULT_LOADER='\\EFI\\LINUX\\LINUX.EFI' install

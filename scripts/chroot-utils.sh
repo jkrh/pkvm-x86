@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 
 [ -z "$KERNEL_CMDLINE" ] && export KERNEL_CMDLINE='root=/dev/sda2 console=ttyS0 mem=8G nokaslr ignore_loglevel intel_iommu=sm_on rw earlyprintk=ttyS0'
-[ -z "$KERNEL_VERSION" ] && export KERNEL_VERSION=6.1
 [ -z "$KERNEL_GENERATION" ] && export KERNEL_GENERATION=1
 [ -z "$CONTACT_EMAIL" ] && export CONTACT_EMAIL=email@example.com
+if [ -z "$KERNEL_VERSION" ] ; then
+	KERNEL_MAJOR=`cat $KERNEL_DIR/include/generated/uapi/linux/version.h |grep LINUX_VERSION_MAJOR | cut -d " " -f 3`
+	KERNEL_PATCH=`cat $KERNEL_DIR/include/generated/uapi/linux/version.h |grep LINUX_VERSION_PATCHLEVEL | cut -d " " -f 3`
+	KERNEL_SUB=`cat $KERNEL_DIR/include/generated/uapi/linux/version.h |grep LINUX_VERSION_SUBLEVEL | cut -d " " -f 3`
+	KERNEL_VERSION="$KERNEL_MAJOR.$KERNEL_PATCH.$KERNEL_SUB"
+fi
 
 # usage: sysroot_error MESSAGE
 sysroot_error() {

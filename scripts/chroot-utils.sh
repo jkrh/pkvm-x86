@@ -9,11 +9,11 @@ if [ -z "$KERNEL_VERSION" ] ; then
 	KERNEL_VERSION="$KERNEL_MAJOR.$KERNEL_PATCH.$KERNEL_SUB"
 fi
 if [ -z "$KERNEL_CMDLINE" ]; then
-if [ "x$EFI" = "x1" ];
-	KERNEL_CMDLINE=`cat $BASE_DIR/platform/q35/vars.mk | sed "s/nvme0n1p1/nvme0n1p2/"`
-else
-	KERNEL_CMDLINE=`cat $BASE_DIR/platform/q35/vars.mk`
-fi
+	if [ "x$EFI" = "x1" ]; then
+		KERNEL_CMDLINE=`cat $BASE_DIR/platform/q35/vars.mk | sed "s/nvme0n1p1/nvme0n1p2/"`
+	else
+		KERNEL_CMDLINE=`cat $BASE_DIR/platform/q35/vars.mk`
+	fi
 fi
 
 # usage: sysroot_error MESSAGE

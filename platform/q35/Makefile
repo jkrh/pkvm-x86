@@ -27,6 +27,9 @@ MACHINEOPTS := smm=on,max-fw-size=16M
 NVRAM := -drive if=pflash,format=raw,unit=0,file=$(BASE_DIR)/build/firmware.rom,readonly=off
 USBSTICK := -drive if=none,id=usbdrive,format=raw,file=$(BASE_DIR)/build/usbstick.img \
 	-device usb-storage,bus=ehci.0,drive=usbdrive
+
+run: $(BASE_DIR)/build/usbstick.img
+
 else ifeq ($(OVMF),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
@@ -86,7 +89,7 @@ $(BASE_DIR)/build/usbstick.img:
 	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
 	$(UEFI_BOOT_APP)
 
-run: $(BASE_DIR)/build/usbstick.img
+run:
 	@echo "------------------------------------------------------------------------------------------"
 ifeq ($(GRAPHICS),1)
 	@echo "Graphics available at 'spice+unix://$(SPICESOCK)'"

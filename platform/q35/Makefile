@@ -36,6 +36,11 @@ IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 # VIRTIO not working yet in the uefi payload, please fix
 NVRAM := -drive if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE.fd,readonly=on \
 	-drive if=pflash,format=raw,unit=1,file=$(BASE_DIR)/build/OVMF_VARS.fd
+
+$(BASE_DIR)/build/OVMF_VARS.fd:
+	cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR)/build/OVMF_VARS.fd
+
+run: $(BASE_DIR)/build/OVMF_VARS.fd
 else
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 ifeq ($(BIOS),1)
@@ -79,6 +84,7 @@ ifeq ($(OPENFW),1)
 QEMUCMD := $(QEMU) $(QEMUOPTS) \
 	   -chardev stdio,id=debugcon,mux=on -device isa-debugcon,iobase=0x402,chardev=debugcon \
 	   -serial file:$(BASE_DIR)/tty0.log -serial file:$(BASE_DIR)/tty1.log -serial file:$(BASE_DIR)/tty2.log
+
 endif
 
 ifeq ($(GRAPHICS),1)
@@ -97,9 +103,6 @@ endif
 	@echo "Host ssh login is available via $(WAYOUT):$(PORT)"
 	@echo "------------------------------------------------------------------------------------------"
 	@rm -f $(SPICESOCK)
-	@if [ ! -e $(BASE_DIR)/build/OVMF_VARS.fd ]; \
-		then cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR)/build/OVMF_VARS.fd ; \
-	fi
 	echo "Running QEMU.."
 	-$(QEMUCMD)
 	@cp -rf $(BASE_DIR)/tty2.log $(BASE_DIR)/debug.log

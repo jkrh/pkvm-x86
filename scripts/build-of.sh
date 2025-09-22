@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/bin/env -S bash -e
 
 FWOPEN=$PWD/uefi/firmware-open
 XGXX=$FWOPEN/coreboot/util/crossgcc/xgcc/bin/x86_64-elf-gcc

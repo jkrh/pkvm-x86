@@ -1,38 +1,45 @@
-From e979b4c07f22bdb9c40c5eaeea2ecebea6f5db0d Mon Sep 17 00:00:00 2001
+From 70c6c84a3c54bef8e61bb16c2764140dc8d621ea Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Wed, 18 Jun 2025 14:57:02 +0300
-Subject: [PATCH] Add support for booting pKVM protected guests
+Subject: [PATCH] pkvm: boot with images preloaded to RAM
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-Shares the code regions and the buffers with the guest, so that the host can
-emulate insb/outsb instructions. This is inherently insecure, and only
-for development purposes.
+The efficient use of fw_cfg with requires either host access to guest
+code, or instruction emulation to guest bootloader. The first option
+is problematic with respect to security, while the second needs
+instruction decoding (because of VE). As an interim solution, rely on
+VMM to load kernel images, ACPI tables and e820 to the RAM.
 
 Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
 ---
- cc_platform.c         |  78 ++++++++++++++++++
- fw_cfg.c              |  18 ++++
+ cc_platform.c         | 153 ++++++++++++++++++++++++++++++++++
+ fw_cfg.c              |  16 ++++
  hwsetup.c             |  16 +++-
- include/cc_platform.h |  16 ++++
+ include/cc_platform.h |  22 +++++
  include/pkvm.h        | 186 ++++++++++++++++++++++++++++++++++++++++++
- main.c                |   2 +
+ main.c                |   8 ++
  meson.build           |   1 +
- 7 files changed, 313 insertions(+), 4 deletions(-)
+ tables.c              |   5 ++
+ 8 files changed, 403 insertions(+), 4 deletions(-)
  create mode 100644 cc_platform.c
  create mode 100644 include/cc_platform.h
  create mode 100644 include/pkvm.h
 
 diff --git a/cc_platform.c b/cc_platform.c
 new file mode 100644
-index 0000000..9d5c74f
+index 0000000..f61074c
 --- /dev/null
 +++ b/cc_platform.c
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,153 @@
 +#include "cc_platform.h"
++#include "string.h"
++#include "stddef.h"
++#include "stdint.h"
 +#include "bios.h"
 +#include "fw_cfg.h"
++#include "e820.h"
 +#include "pkvm.h"
 +#include <stdio.h>
 +
@@ -50,26 +57,6 @@ index 0000000..9d5c74f
 +{
 +	cc_platform = cc_platform_detect();
 +
-+	switch (cc_platform) {
-+		case CC_PLATFORM_PKVM:
-+			// Unfortunately we need to share the text segments, so that
-+			// the VMM can emulate the insb/outsb instructions
-+			return pkvm_share_mem(&stext, &edata - &stext);
-+		default:
-+			break;
-+	}
-+
-+	return 0;
-+}
-+
-+int cc_platform_cleanup(void)
-+{
-+	switch (cc_platform) {
-+		case CC_PLATFORM_PKVM:
-+			return pkvm_unshare_mem(&stext, &edata - &stext);
-+		default:
-+			break;
-+	}
 +	return 0;
 +}
 +
@@ -77,6 +64,11 @@ index 0000000..9d5c74f
 +{
 +	switch (cc_platform) {
 +		case CC_PLATFORM_PKVM:
++			/* DMA needs instruction decoding to bootloader,
++			 * because #VE is raised to the guest on MMIO access.
++			 *
++			 * This is currently unsupported.
++			 */
 +			return version & ~FW_CFG_VERSION_DMA;
 +		default:
 +			break;
@@ -84,32 +76,118 @@ index 0000000..9d5c74f
 +	return version;
 +}
 +
-+int cc_platform_fw_cfg_prepare_buffer(void *buf, int len)
++static inline void cc_platform_fw_cfg_in(void *buf,
++					 unsigned short port,
++					 int len)
 +{
-+	switch (cc_platform) {
-+		case CC_PLATFORM_PKVM:
-+			return pkvm_share_buffer(buf, len);
-+		default:
-+			break;
++	for (int i = 0; i < len; i++) {
++		((unsigned char *) buf)[i] = inb(port);
 +	}
++}
++
++int cc_platform_fw_cfg_read(void *buf, int len)
++{
++	if (cc_platform != CC_PLATFORM_PKVM) {
++		return 1;
++	}
++
++	cc_platform_fw_cfg_in(buf, FW_CFG_DATA, len);
 +
 +	return 0;
 +}
 +
-+int cc_platform_fw_cfg_complete_buffer(void *buf, int len)
++int cc_platform_fw_cfg_read_entry(int e, void *buf, int len)
 +{
-+	switch (cc_platform) {
-+		case CC_PLATFORM_PKVM: {
-+			return pkvm_unshare_buffer(buf, len);
-+		}
-+		default:
-+			break;
++	if (cc_platform != CC_PLATFORM_PKVM) {
++		return 1;
 +	}
 +
++	fw_cfg_select(e);
++	cc_platform_fw_cfg_in(buf, FW_CFG_DATA, len);
++
 +	return 0;
++}
++
++#define PKVM_E820_LOADADDR (0x7FB00000)
++#define PKVM_FSEG_LOADADDR (PKVM_E820_LOADADDR + 0x10000)
++
++static void *find_rsdp(void)
++{
++	int i;
++	char *p = (char *) PKVM_FSEG_LOADADDR;
++
++	/* Search backwards */
++	for (i = 0x10000 - 16; i >= 0; i -= 16) {
++		if (!memcmp(&p[i], "RSD PTR ", 8)) {
++			/* The marker found */
++			return &p[i];
++		}
++	}
++
++	return NULL;
++}
++
++static int load_rsdp(void)
++{
++	uint32_t n = 0;
++	char *s = find_rsdp();
++
++	if (!s) {
++		/* marker not found */
++		return -1;
++	}
++
++	if (!s[15]) {
++		/* Rev 1.0 */
++		n = 20;
++	} else {
++		/* Rev 2.0 */
++		n = *((uint32_t *) &s[20]);
++	}
++
++	char *d = malloc_fseg_align(n, 16);
++	memcpy(d, s, n);
++
++	return 0;
++}
++
++int cc_platform_extract_acpi(void)
++{
++	if (cc_platform != CC_PLATFORM_PKVM) {
++		return 1;
++	}
++
++	load_rsdp();
++
++	return 0;
++}
++
++struct e820map *cc_platform_extract_e820(void)
++{
++	struct e820map *e820;
++
++	if (cc_platform != CC_PLATFORM_PKVM) {
++		return NULL;
++	}
++
++	uint32_t nr_map = *(uint32_t *) PKVM_E820_LOADADDR;
++	e820 = malloc(offsetof(struct e820map, map[nr_map]));
++
++	memcpy(e820, (void *) PKVM_E820_LOADADDR, offsetof(struct e820map, map[nr_map]));
++
++	return e820;
++}
++
++void cc_platform_boot_from_fwcfg(struct linuxboot_args *args)
++{
++	if (!parse_bzimage(args)) {
++		return;
++	}
++
++	boot_bzimage(args);
 +}
 diff --git a/fw_cfg.c b/fw_cfg.c
-index f3d9605..fba5483 100644
+index f3d9605..0b899d5 100644
 --- a/fw_cfg.c
 +++ b/fw_cfg.c
 @@ -10,6 +10,7 @@
@@ -129,65 +207,47 @@ index f3d9605..fba5483 100644
  	fw_cfg_select(FW_CFG_FILE_DIR);
  	n = fw_cfg_readl_be();
  	filecnt = n;
-@@ -112,16 +115,22 @@ void fw_cfg_dma(int control, void *buf, int len)
+@@ -112,6 +115,10 @@ void fw_cfg_dma(int control, void *buf, int len)
  
  void fw_cfg_read(void *buf, int len)
  {
-+	cc_platform_fw_cfg_prepare_buffer(buf, len);
++	if (!cc_platform_fw_cfg_read(buf, len)) {
++		return;
++	}
 +
  	if (version & FW_CFG_VERSION_DMA) {
  		fw_cfg_dma(FW_CFG_DMA_CTL_READ, buf, len);
  	} else {
- 		insb(buf, FW_CFG_DATA, len);
- 	}
-+
-+	cc_platform_fw_cfg_complete_buffer(buf, len);
- }
- 
+@@ -122,6 +129,10 @@ void fw_cfg_read(void *buf, int len)
  void
  fw_cfg_read_entry(int e, void *buf, int len)
  {
-+	cc_platform_fw_cfg_prepare_buffer(buf, len);
++	if (!cc_platform_fw_cfg_read_entry(e, buf, len)) {
++		return;
++	}
 +
  	if (version & FW_CFG_VERSION_DMA) {
  		int control;
  		control = (e << 16);
-@@ -132,6 +141,8 @@ fw_cfg_read_entry(int e, void *buf, int len)
- 		fw_cfg_select(e);
- 		insb(buf, FW_CFG_DATA, len);
- 	}
-+
-+	cc_platform_fw_cfg_complete_buffer(buf, len);
- }
- 
- /* Multiboot trampoline.  QEMU does the ELF parsing.  */
-@@ -184,6 +195,9 @@ static void boot_multiboot_from_fw_cfg(void)
+@@ -184,6 +195,7 @@ static void boot_multiboot_from_fw_cfg(void)
  
  	fw_cfg_select(FW_CFG_KERNEL_ENTRY);
  	kernel_entry = (void *) fw_cfg_readl_le();
-+
-+	cc_platform_cleanup();
 +
  	asm volatile("jmp *%2" : : "a" (0x2badb002), "b"(mb), "c"(kernel_entry));
  	panic();
  }
-@@ -254,6 +268,8 @@ static void boot_pvh_from_fw_cfg(void)
- 	fw_cfg_select(FW_CFG_KERNEL_ENTRY);
- 	kernel_entry = (void *) fw_cfg_readl_le();
+@@ -289,6 +301,10 @@ void boot_from_fwcfg(void)
+ 	if (!args.vmlinuz_size)
+ 		return;
  
-+	cc_platform_cleanup();
++	if (cc_platform_detect() != CC_PLATFORM_NONE) {
++		cc_platform_boot_from_fwcfg(&args);
++	}
 +
- #ifdef BENCHMARK_HACK
- 	/* Exit just before jumping to vmlinux, so that it is easy
- 	 * to time/profile the firmware.
-@@ -314,5 +330,7 @@ void boot_from_fwcfg(void)
- 		fw_cfg_read_entry(FW_CFG_INITRD_DATA, args.initrd_addr, args.initrd_size);
- 	}
+ 	fw_cfg_select(FW_CFG_SETUP_DATA);
+ 	fw_cfg_read(args.setup_addr, HEADER_PEEK_SIZE);
  
-+	cc_platform_cleanup();
-+
- 	boot_bzimage(&args);
- }
 diff --git a/hwsetup.c b/hwsetup.c
 index 250213e..022e232 100644
 --- a/hwsetup.c
@@ -225,12 +285,15 @@ index 250213e..022e232 100644
  	memcpy(&stext, bios_start, &edata - &stext);
 diff --git a/include/cc_platform.h b/include/cc_platform.h
 new file mode 100644
-index 0000000..3d6891c
+index 0000000..f008440
 --- /dev/null
 +++ b/include/cc_platform.h
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,22 @@
 +#ifndef BIOS_CC_PLATFORM_H
 +#define BIOS_CC_PLATFORM_H
++
++#include "stdint.h"
++#include "linuxboot.h"
 +
 +enum cc_platform {
 +	CC_PLATFORM_NONE,
@@ -239,10 +302,13 @@ index 0000000..3d6891c
 +
 +int cc_platform_detect(void);
 +int cc_platform_setup(void);
-+int cc_platform_cleanup(void);
 +int cc_platform_fw_cfg_setup(int version);
-+int cc_platform_fw_cfg_prepare_buffer(void *buf, int len);
-+int cc_platform_fw_cfg_complete_buffer(void *buf, int len);
++
++int cc_platform_fw_cfg_read(void *buf, int len);
++int cc_platform_fw_cfg_read_entry(int e, void *buf, int len);
++int cc_platform_extract_acpi(void);
++struct e820map *cc_platform_extract_e820(void);
++void cc_platform_boot_from_fwcfg(struct linuxboot_args *args);
 +
 +#endif /* BIOS_PLATFORM_H */
 diff --git a/include/pkvm.h b/include/pkvm.h
@@ -438,7 +504,7 @@ index 0000000..9bba17e
 +
 +#endif /* BIOS_PKVM_X86 */
 diff --git a/main.c b/main.c
-index afa2200..64e5f27 100644
+index afa2200..1cfabb4 100644
 --- a/main.c
 +++ b/main.c
 @@ -8,6 +8,7 @@
@@ -449,7 +515,27 @@ index afa2200..64e5f27 100644
  
  static void set_realmode_int(int vec, void *p)
  {
-@@ -94,6 +95,7 @@ int __attribute__ ((section (".text.startup"))) main(void)
+@@ -44,6 +45,11 @@ static void extract_e820(void)
+ 	if (id == -1)
+ 		panic();
+ 
++	e820 = cc_platform_extract_e820();
++	if (e820) {
++		goto done;
++	}
++
+ 	size = fw_cfg_file_size(id);
+ 	nr_map = size / sizeof(e820->map[0]) + 5;
+ 
+@@ -74,6 +80,7 @@ static void extract_e820(void)
+ 			break;
+ 		}
+ 
++done:
+ 	e820_seg = ((uintptr_t) e820) >> 4;
+ }
+ 
+@@ -94,6 +101,7 @@ int __attribute__ ((section (".text.startup"))) main(void)
  	if (have_pci) {
  		setup_pci();
  	}
@@ -469,6 +555,29 @@ index d060f75..35c1bec 100644
      'code16.c',
      'code32seg.c',
      'cstart.S',
+diff --git a/tables.c b/tables.c
+index 9934a91..266bdc6 100644
+--- a/tables.c
++++ b/tables.c
+@@ -3,6 +3,7 @@
+ #include "fw_cfg.h"
+ #include "string.h"
+ #include "start_info.h"
++#include "cc_platform.h"
+ 
+ extern struct hvm_start_info start_info;
+ 
+@@ -127,6 +128,10 @@ static void do_checksum(char *file, uint32_t offset, uint32_t start, uint32_t le
+ 
+ void extract_acpi(void)
+ {
++	if (!cc_platform_extract_acpi()) {
++		return;
++	}
++
+ 	int id = fw_cfg_file_id("etc/table-loader");
+ 	int n = fw_cfg_file_size(id);
+ 	struct loader_cmd script[n / sizeof(struct loader_cmd)];
 -- 
 2.49.0
 

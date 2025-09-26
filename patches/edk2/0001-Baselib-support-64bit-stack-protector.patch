@@ -1,0 +1,100 @@
+From 2e1f44673050dc84262a8ed99d866e928b06684b Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Fri, 26 Sep 2025 11:26:32 +0300
+Subject: [PATCH] Baselib: support 64bit stack protector
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ BaseTools/Conf/tools_def.template             |  2 +-
+ MdePkg/Library/BaseLib/BaseLib.inf            |  2 ++
+ MdePkg/Library/BaseLib/StackCheck.c           | 28 +++++++++++++++++++
+ .../Library/BaseLib/StackCheckConstructor.c   | 16 +++++++++++
+ 4 files changed, 47 insertions(+), 1 deletion(-)
+ create mode 100644 MdePkg/Library/BaseLib/StackCheck.c
+ create mode 100644 MdePkg/Library/BaseLib/StackCheckConstructor.c
+
+diff --git a/BaseTools/Conf/tools_def.template b/BaseTools/Conf/tools_def.template
+index 2e6b382ab6..0c195b64f4 100755
+--- a/BaseTools/Conf/tools_def.template
++++ b/BaseTools/Conf/tools_def.template
+@@ -1903,7 +1903,7 @@ DEFINE GCC_DEPS_FLAGS              = -MMD -MF $@.deps
+ DEFINE GCC48_ALL_CC_FLAGS            = DEF(GCC_ALL_CC_FLAGS) -ffunction-sections -fdata-sections -DSTRING_ARRAY_NAME=$(BASE_NAME)Strings
+ DEFINE GCC48_IA32_X64_DLINK_COMMON   = -nostdlib -Wl,-n,-q,--gc-sections -z common-page-size=0x20
+ DEFINE GCC48_IA32_CC_FLAGS           = DEF(GCC48_ALL_CC_FLAGS) -m32 -march=i586 -malign-double -fno-stack-protector -D EFI32 -fno-asynchronous-unwind-tables -Wno-address
+-DEFINE GCC48_X64_CC_FLAGS            = DEF(GCC48_ALL_CC_FLAGS) -m64 -fno-stack-protector "-DEFIAPI=__attribute__((ms_abi))" -maccumulate-outgoing-args -mno-red-zone -Wno-address -mcmodel=small -fpie -fno-asynchronous-unwind-tables -Wno-address
++DEFINE GCC48_X64_CC_FLAGS            = DEF(GCC48_ALL_CC_FLAGS) -m64 -fstack-protector "-DEFIAPI=__attribute__((ms_abi))" -maccumulate-outgoing-args -mno-red-zone -Wno-address -mcmodel=small -fpie -fno-asynchronous-unwind-tables -Wno-address
+ DEFINE GCC48_IA32_X64_ASLDLINK_FLAGS = DEF(GCC48_IA32_X64_DLINK_COMMON) -Wl,--entry,ReferenceAcpiTable -u ReferenceAcpiTable
+ DEFINE GCC48_IA32_X64_DLINK_FLAGS    = DEF(GCC48_IA32_X64_DLINK_COMMON) -Wl,--entry,$(IMAGE_ENTRY_POINT) -u $(IMAGE_ENTRY_POINT) -Wl,-Map,$(DEST_DIR_DEBUG)/$(BASE_NAME).map,--whole-archive
+ DEFINE GCC48_IA32_DLINK2_FLAGS       = -Wl,--defsym=PECOFF_HEADER_SIZE=0x220 DEF(GCC_DLINK2_FLAGS_COMMON)
+diff --git a/MdePkg/Library/BaseLib/BaseLib.inf b/MdePkg/Library/BaseLib/BaseLib.inf
+index 6efa5315b6..8a477aa731 100644
+--- a/MdePkg/Library/BaseLib/BaseLib.inf
++++ b/MdePkg/Library/BaseLib/BaseLib.inf
+@@ -61,6 +61,8 @@
+   String.c
+   FilePaths.c
+   BaseLibInternals.h
++  StackCheck.c
++  StackCheckConstructor.c
+ 
+ [Sources.Ia32]
+   Ia32/WriteTr.nasm
+diff --git a/MdePkg/Library/BaseLib/StackCheck.c b/MdePkg/Library/BaseLib/StackCheck.c
+new file mode 100644
+index 0000000000..82567b0d56
+--- /dev/null
++++ b/MdePkg/Library/BaseLib/StackCheck.c
+@@ -0,0 +1,28 @@
++#include <Base.h>
++#include <Library/DebugLib.h>
++#include <Library/BaseLib.h>
++#include <Library/RngLib.h>
++
++#if defined (__GNUC__) || defined (__clang__)
++
++UINT64 __stack_chk_guard;
++
++void
++__stack_chk_guard_setup (
++  void
++  )
++{
++  GetRandomNumber64(&__stack_chk_guard);
++}
++
++void
++__stack_chk_fail (
++  void
++  )
++{
++  DEBUG ((EFI_D_ERROR, "STACK CORRUPTION DETECTED!\n"));
++  ASSERT (FALSE);
++  CpuDeadLoop ();
++}
++
++#endif
+diff --git a/MdePkg/Library/BaseLib/StackCheckConstructor.c b/MdePkg/Library/BaseLib/StackCheckConstructor.c
+new file mode 100644
+index 0000000000..f79824df34
+--- /dev/null
++++ b/MdePkg/Library/BaseLib/StackCheckConstructor.c
+@@ -0,0 +1,16 @@
++#include <Base.h>
++#include <Library/BaseLib.h>
++
++void __stack_chk_guard_setup (void);
++
++RETURN_STATUS
++EFIAPI
++BaseLibStackGuardConstructor (
++  VOID
++  )
++{
++#if defined (__GNUC__) || defined (__clang__)
++  __stack_chk_guard_setup ();
++#endif
++  return RETURN_SUCCESS;
++}
+-- 
+2.34.1
+

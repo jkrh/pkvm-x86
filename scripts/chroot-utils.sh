@@ -178,6 +178,30 @@ sysroot_create() {
 		"apt-get update; apt-get -y install $pkglist"
 }
 
+#
+# We do this with mformat in overly complicated fashion for the reason that mkfs.fat
+# leaves the TotalSectors32 empty. Edk2 fat driver needs it.
+#
+mformat_partition() {
+	DEVICE="$1"
+	PARTITION_NUM="$2"
+	PARTITION_PATH="${DEVICE}p${PARTITION_NUM}"
+	VOLUME_LABEL="EFIBOOT"
+	TEMP_IMAGE="temp_esp.img"
+
+	set -x
+	PARTITION_SECTORS=$(parted -s ${DEVICE} unit s print | sed -e 's/s//g' | grep "^ ${PARTITION_NUM} " | awk '{print $4}')
+	SECTOR_SIZE=512 # Assume 512-byte sectors
+	PARTITION_BYTES=$((PARTITION_SECTORS * SECTOR_SIZE))
+
+	echo "Partition Size: ${PARTITION_SECTORS} sectors (${PARTITION_BYTES} bytes)"
+
+	truncate -s ${PARTITION_BYTES} ${TEMP_IMAGE}
+	mformat -i ${TEMP_IMAGE} -F -v "${VOLUME_LABEL}" ::
+	dd if=${TEMP_IMAGE} of=${PARTITION_PATH} bs=4M status=progress
+	rm ${TEMP_IMAGE}
+}
+
 # usage: sysroot_create_image_file SYSROOT_DIR FILE SIZE
 sysroot_create_image_file() {
 	local tmp_image_dir
@@ -202,7 +226,7 @@ sysroot_create_image_file() {
 
 	sudo -E bash -ec "
 	$(declare -f sysroot_do_unmount)
-
+	$(declare -f mformat_partition)
 	create_image_cleanup() {
 		set -e
 		sysroot_do_unmount '$tmp_image_dir/boot' || true
@@ -226,13 +250,12 @@ sysroot_create_image_file() {
 
 	if [ "x$EFI" = "x1" ]; then
 		parted -s /dev/nbd0 mklabel gpt \
-			mkpart ESP fat32 1MiB 5% \
+			mkpart ESP fat32 1MiB 2GiB \
 			set 1 esp on \
-			set 1 boot on \
-			mkpart ROOT ext4 5% 100%
+			mkpart ROOT ext4 2GiB 100%
 		sync
 		sleep 2
-		mkfs.vfat -F 32 /dev/nbd0p1
+		mformat_partition /dev/nbd0 1
 		mkfs.ext4 /dev/nbd0p2
 		sync
 		mount /dev/nbd0p2 '$tmp_image_dir'

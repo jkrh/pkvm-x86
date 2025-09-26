@@ -40,6 +40,7 @@ EDK2_PACKAGE_NAMES_TO_SCAN_DEFAULTS = [
     "UefiPayloadPkg",
     "MdeModulePkg",
     "MdePkg",
+    "FatPkg",
     # EDK2_PLATFORM_PACKAGE_NAME will be added dynamically
     "ShellPkg", # If you use the shell
 ]

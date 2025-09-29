@@ -121,6 +121,7 @@ ifeq ($(EDK2DEBUG),1)
 	@env EDK2_SOURCE_ROOT_ENV=$(BASE_DIR)/uefi/firmware-open/edk2 \
 	EDK2_PLATFORM_PACKAGE_NAME_ENV=UefiPayloadPkgX64 \
 	EDK2_BUILD_TARGET_DIR_NAME_ENV=DEBUG_COREBOOT \
+	COREBOOT_SOURCE_ROOT_ENV=$(BASE_DIR)/uefi/firmware-open/coreboot \
 	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_edk2_symbols.py -ex "rebuild-edk2-guidmap $(BASE_DIR)/debug.log"
 endif
 ifeq ($(SHIMDEBUG),1)

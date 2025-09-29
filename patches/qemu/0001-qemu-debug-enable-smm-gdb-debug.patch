@@ -1,0 +1,107 @@
+From 5ff12ad5610fad67d05c5aea3f710ca4cf4b51a8 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+Date: Mon, 29 Sep 2025 14:48:00 +0300
+Subject: [PATCH] qemu: debug: enable smm gdb debug
+
+Use with caution. This will enforce the environment
+to work in one address space.
+
+Additionally this will disable tseg-blackhole
+functionality.
+
+Signed-off-by: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+---
+ hw/pci-host/q35.c | 12 +++++++++---
+ target/i386/cpu.h |  6 ++++++
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/hw/pci-host/q35.c b/hw/pci-host/q35.c
+index 0b6cbaed7e..0a4d5824b6 100644
+--- a/hw/pci-host/q35.c
++++ b/hw/pci-host/q35.c
+@@ -264,7 +264,8 @@ static const TypeInfo q35_host_info = {
+ /****************************************************************************
+  * MCH D0:F0
+  */
+-
++#define GDB_HACK
++#ifndef GDB_HACK
+ static uint64_t blackhole_read(void *ptr, hwaddr reg, unsigned size)
+ {
+     return 0xffffffff;
+@@ -285,6 +286,7 @@ static const MemoryRegionOps blackhole_ops = {
+     .impl.max_access_size = 4,
+     .endianness = DEVICE_LITTLE_ENDIAN,
+ };
++#endif
+ 
+ /* PCIe MMCFG */
+ static void mch_update_pciexbar(MCHPCIState *mch)
+@@ -344,7 +346,9 @@ static void mch_update_smram(MCHPCIState *mch)
+ {
+     PCIDevice *pd = PCI_DEVICE(mch);
+     bool h_smrame = (pd->config[MCH_HOST_BRIDGE_ESMRAMC] & MCH_HOST_BRIDGE_ESMRAMC_H_SMRAME);
++#ifndef GDB_HACK
+     uint32_t tseg_size;
++#endif
+ 
+     /* implement SMRAM.D_LCK */
+     if (pd->config[MCH_HOST_BRIDGE_SMRAM] & MCH_HOST_BRIDGE_SMRAM_D_LCK) {
+@@ -374,6 +378,7 @@ static void mch_update_smram(MCHPCIState *mch)
+         memory_region_set_enabled(&mch->high_smram, false);
+     }
+ 
++#ifndef GDB_HACK
+     if ((pd->config[MCH_HOST_BRIDGE_ESMRAMC] & MCH_HOST_BRIDGE_ESMRAMC_T_EN) &&
+         (pd->config[MCH_HOST_BRIDGE_SMRAM] & SMRAM_G_SMRAME)) {
+         switch (pd->config[MCH_HOST_BRIDGE_ESMRAMC] &
+@@ -407,7 +412,7 @@ static void mch_update_smram(MCHPCIState *mch)
+                               mch->below_4g_mem_size - tseg_size);
+     memory_region_set_alias_offset(&mch->tseg_window,
+                                    mch->below_4g_mem_size - tseg_size);
+-
++#endif
+     memory_region_transaction_commit();
+ }
+ 
+@@ -623,7 +628,7 @@ static void mch_realize(PCIDevice *d, Error **errp)
+                              MCH_HOST_BRIDGE_SMRAM_C_SIZE);
+     memory_region_set_enabled(&mch->high_smram, true);
+     memory_region_add_subregion(&mch->smram, 0xfeda0000, &mch->high_smram);
+-
++#ifndef GDB_HACK
+     memory_region_init_io(&mch->tseg_blackhole, OBJECT(mch),
+                           &blackhole_ops, NULL,
+                           "tseg-blackhole", 0);
+@@ -660,6 +665,7 @@ static void mch_realize(PCIDevice *d, Error **errp)
+ 
+     object_property_add_const_link(qdev_get_machine(), "smram",
+                                    OBJECT(&mch->smram));
++#endif
+ }
+ 
+ uint64_t mch_mcfg_base(void)
+diff --git a/target/i386/cpu.h b/target/i386/cpu.h
+index 14edd57a37..d7feb76c7a 100644
+--- a/target/i386/cpu.h
++++ b/target/i386/cpu.h
+@@ -2378,10 +2378,16 @@ bool cpu_has_x2apic_feature(CPUX86State *env);
+ void x86_cpu_set_a20(X86CPU *cpu, int a20_state);
+ void cpu_sync_avx_hflag(CPUX86State *env);
+ 
++#define GDB_SMM_HACK
++
+ #ifndef CONFIG_USER_ONLY
+ static inline int x86_asidx_from_attrs(CPUState *cs, MemTxAttrs attrs)
+ {
++#ifndef GDB_SMM_HACK
+     return !!attrs.secure;
++#else
++    return 0;
++#endif
+ }
+ 
+ static inline AddressSpace *cpu_addressspace(CPUState *cs, MemTxAttrs attrs)
+-- 
+2.43.0
+

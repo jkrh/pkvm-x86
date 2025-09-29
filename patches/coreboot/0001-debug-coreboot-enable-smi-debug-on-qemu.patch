@@ -1,0 +1,25 @@
+From 704cc02b56d7c96bb70a940fced32a63d94d72ff Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+Date: Mon, 29 Sep 2025 15:17:10 +0300
+Subject: [PATCH] debug: coreboot: enable smi debug on qemu
+
+Signed-off-by: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+---
+ src/mainboard/emulation/qemu-q35/Kconfig | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/mainboard/emulation/qemu-q35/Kconfig b/src/mainboard/emulation/qemu-q35/Kconfig
+index 854c0533c3..36392ec832 100644
+--- a/src/mainboard/emulation/qemu-q35/Kconfig
++++ b/src/mainboard/emulation/qemu-q35/Kconfig
+@@ -19,6 +19,7 @@ config BOARD_SPECIFIC_OPTIONS
+ 	select BOOT_DEVICE_MEMORY_MAPPED
+ 	select BOOT_DEVICE_SUPPORTS_WRITES
+ 	select DRIVERS_EMULATION_QEMU_FW_CFG
++	select DEBUG_SMI
+ 
+ config VBOOT
+ 	select VBOOT_MUST_REQUEST_DISPLAY
+-- 
+2.43.0
+

@@ -25,12 +25,15 @@ import subprocess # For calling objdump
 
 ##### User Configuration
 EDK2_SOURCE_ROOT_ENV_VAR = "EDK2_SOURCE_ROOT_ENV"
+COREBOOT_SOURCE_ROOT_ENV_VAR = "COREBOOT_SOURCE_ROOT_ENV"
 EDK2_PLATFORM_PACKAGE_NAME_ENV_VAR = "EDK2_PLATFORM_PACKAGE_NAME_ENV"
 EDK2_BUILD_TARGET_DIR_NAME_ENV_VAR = "EDK2_BUILD_TARGET_DIR_NAME_ENV"
 
 EDK2_SOURCE_ROOT = None
 EDK2_PLATFORM_PACKAGE_NAME = None
 EDK2_BUILD_TARGET_DIR_NAME = None
+
+COREBOOT_SOURCE_ROOT = None
 
 # Target architecture (e.g., X64, IA32, AARCH64) - Hardcoded for now, can be made ENV VAR if needed.
 EDK2_TARGET_ARCH = "X64"
@@ -78,10 +81,13 @@ class Edk2SymbolHelper:
         """
         global EDK2_SOURCE_ROOT, EDK2_PLATFORM_PACKAGE_NAME, EDK2_BUILD_TARGET_DIR_NAME
         global EDK2_DEBUG_FILES_SEARCH_BASE, EDK2_PACKAGE_SOURCE_DIRS_TO_SCAN
+        global COREBOOT_SOURCE_ROOT
 
         EDK2_SOURCE_ROOT = os.getenv(EDK2_SOURCE_ROOT_ENV_VAR)
         EDK2_PLATFORM_PACKAGE_NAME = os.getenv(EDK2_PLATFORM_PACKAGE_NAME_ENV_VAR)
         EDK2_BUILD_TARGET_DIR_NAME = os.getenv(EDK2_BUILD_TARGET_DIR_NAME_ENV_VAR)
+
+        COREBOOT_SOURCE_ROOT = os.getenv(COREBOOT_SOURCE_ROOT_ENV_VAR)
 
         missing_vars = []
         if not EDK2_SOURCE_ROOT: missing_vars.append(EDK2_SOURCE_ROOT_ENV_VAR)
@@ -122,12 +128,11 @@ class Edk2SymbolHelper:
         
         return True
 
-    def find_debug_file_recursive(self, base_name):
+    def find_debug_file_recursive(self, base_name, filext, search_base_abs):
         if base_name in self.debug_file_cache:
             return self.debug_file_cache[base_name]
 
-        target_filename = f"{base_name}.debug"
-        search_base_abs = os.path.abspath(EDK2_DEBUG_FILES_SEARCH_BASE) 
+        target_filename = f"{base_name}.{filext}"
         if not os.path.isdir(search_base_abs):
             return None
 
@@ -209,7 +214,7 @@ class Edk2SymbolHelper:
                                                         "DXE_SAL_DRIVER", "DXE_SMM_DRIVER", 
                                                         "UEFI_DRIVER", "UEFI_APPLICATION", "DXE_CORE"]:
                                 relevant_module_count +=1
-                                full_debug_path = self.find_debug_file_recursive(base_name)
+                                full_debug_path = self.find_debug_file_recursive(base_name, "debug", os.path.abspath(EDK2_DEBUG_FILES_SEARCH_BASE))
                                 if full_debug_path:
                                     self.guid_to_module_details[file_guid] = {
                                         "base_name": base_name,
@@ -261,6 +266,40 @@ class Edk2SymbolHelper:
         except Exception as e:
             print(f"Could not get .text offset for {full_debug_path_to_check}: {e}") # Kept error for unexpected issues
         return 0
+
+    def load_smi_handler_symbols(self, log_file_path):
+        """Parses the log file and loads smm symbols if offset is found."""
+        self.loaded_modules_info = {} # Reset for this specific load operation
+        global COREBOOT_SOURCE_ROOT
+
+        COREBOOT_SOURCE_ROOT = os.path.abspath(os.path.expanduser(COREBOOT_SOURCE_ROOT))
+        smm_symbols_path = self.find_debug_file_recursive("smm", "elf", os.path.abspath(COREBOOT_SOURCE_ROOT))
+
+        if not smm_symbols_path:
+            print(f"Could not find smm.elf from {COREBOOT_SOURCE_ROOT}") # Kept error for unexpected issues
+            return
+
+        log_pattern = re.compile(
+            r"SMI handler_base "
+            r"0x(?P<image_base>[0-9a-fA-F]+)"
+        )
+
+        try:
+            with open(log_file_path, "r", encoding="utf-8", errors="ignore") as f_log:
+                for line_num, line in enumerate(f_log, 1):
+                    match = log_pattern.search(line)
+                    if match:
+                        image_base_addr = int(match.group("image_base"), 16)
+                        print(f"Found: SMI handler base: 0x{image_base_addr:X}")
+                        try:
+                            gdb.execute(f"add-symbol-file \"{smm_symbols_path}\" 0x{image_base_addr:X}")
+                            print(f"  Symbols from '{smm_symbols_path}' loaded.")
+                        except gdb.error as e:
+                            print(f"  Error loading symbols from '{smm_symbols_path}': {e}") # Kept GDB load errors
+                    # else:
+                        # print(f"SMI handler symbols not loaded")
+        except FileNotFoundError: print(f"Error: Log file '{log_file_path}' not found.") # Kept critical errors
+        except Exception as e: print(f"An error occurred during symbol loading from log: {e}") # Kept critical errors
 
     def load_symbols_from_log_file(self, log_file_path):
         """Parses the log file and loads symbols for found modules."""
@@ -362,6 +401,7 @@ class LoadEdk2SymbolsCommand(gdb.Command):
             return
         
         edk2_helper.load_symbols_from_log_file(log_file_path)
+        edk2_helper.load_smi_handler_symbols(log_file_path)
 
 
 class RebuildEdk2GuidMapCommand(gdb.Command):
@@ -391,6 +431,7 @@ class RebuildEdk2GuidMapCommand(gdb.Command):
             print("GUID map rebuild complete and cached.")
             print(f"Now loading symbols from log: {log_file_path}")
             edk2_helper.load_symbols_from_log_file(log_file_path)
+            edk2_helper.load_smi_handler_symbols(log_file_path)
         else:
             print("GUID map rebuild failed. Check errors and environment variable settings.")
 

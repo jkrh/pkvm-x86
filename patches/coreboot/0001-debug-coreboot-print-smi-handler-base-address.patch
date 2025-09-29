@@ -1,0 +1,26 @@
+From d719efb5583105c4f1300265ff6e3b0b7c22e374 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+Date: Mon, 29 Sep 2025 15:34:36 +0300
+Subject: [PATCH] debug: coreboot: print smi handler base address
+
+Signed-off-by: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+---
+ src/cpu/x86/smm/smm_module_loader.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/cpu/x86/smm/smm_module_loader.c b/src/cpu/x86/smm/smm_module_loader.c
+index ba92e1ff2f..17beb13a38 100644
+--- a/src/cpu/x86/smm/smm_module_loader.c
++++ b/src/cpu/x86/smm/smm_module_loader.c
+@@ -542,6 +542,8 @@ int smm_load_module(const uintptr_t smram_base, const size_t smram_size,
+ 
+ 	struct smm_runtime *smihandler_params = rmodule_parameters(&smi_handler);
+ 	params->handler = rmodule_entry(&smi_handler);
++	printk(BIOS_DEBUG, "SMI handler_base %p\n", (void *)handler_base);
++
+ 	setup_smihandler_params(smihandler_params, params);
+ 
+ 	return smm_module_setup_stub(stub_segment_base, smram_size, params);
+-- 
+2.43.0
+

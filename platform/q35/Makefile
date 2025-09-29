@@ -122,8 +122,16 @@ ifeq ($(EDK2DEBUG),1)
 	EDK2_PLATFORM_PACKAGE_NAME_ENV=UefiPayloadPkgX64 \
 	EDK2_BUILD_TARGET_DIR_NAME_ENV=DEBUG_COREBOOT \
 	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_edk2_symbols.py -ex "rebuild-edk2-guidmap $(BASE_DIR)/debug.log"
-else
-	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_edk2_symbols.py $(VMLINUX)
+endif
+ifeq ($(SHIMDEBUG),1)
+	gdb -x $(BASE_DIR)/scripts/gdb-commands -x $(BASE_DIR)/scripts/load_shim_symbols.py -ex "load-shim-symbols $(BASE_DIR)/debug.log $(BASE_DIR)/build/shim/boot/efi/EFI/BOOT/shimx64.efi.debug"
+endif
+ifneq ($(SHIMDEBUG),1)
+ifneq ($(EDK2DEBUG),1)
+ifeq ($(KERNELDEBUG),1)
+	gdb -x $(BASE_DIR)/scripts/gdb-commands $(VMLINUX)
+endif
+endif
 endif
 
 .PHONY := gdb clean run poorman

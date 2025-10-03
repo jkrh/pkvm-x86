@@ -84,7 +84,6 @@ ifeq ($(OPENFW),1)
 QEMUCMD := $(QEMU) $(QEMUOPTS) \
 	   -chardev stdio,id=debugcon,mux=on -device isa-debugcon,iobase=0x402,chardev=debugcon \
 	   -serial file:$(BASE_DIR)/tty0.log -serial file:$(BASE_DIR)/tty1.log -serial file:$(BASE_DIR)/tty2.log
-
 endif
 
 ifeq ($(GRAPHICS),1)
@@ -94,6 +93,9 @@ endif
 $(BASE_DIR)/build/usbstick.img:
 	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
 	$(UEFI_BOOT_APP)
+	@if [ ! -e $(BASE_DIR)/build/firmware-clean.rom ]; then \
+		cp $(BASE_DIR)/build/firmware.rom $(BASE_DIR)/build/firmware-clean.rom || true; \
+	fi
 
 run:
 	@echo "------------------------------------------------------------------------------------------"
@@ -109,8 +111,10 @@ endif
 
 clean:
 	@rm -rf $(BASE_DIR)/build/OVMF_VARS.fd
-	@rm -rf $(BASE_DIR)/build/firmware.rom
 	@rm -rf $(BASE_DIR)/build/usbstick.img
+	@if [ -e $(BASE_DIR)/build/firmware-clean.rom ]; then \
+		cp $(BASE_DIR)/build/firmware-clean.rom $(BASE_DIR)/build/firmware.rom ; \
+	fi
 
 poorman:
 	@PROG=$(KERNEL) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \

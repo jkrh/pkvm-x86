@@ -202,6 +202,25 @@ mformat_partition() {
 	rm ${TEMP_IMAGE}
 }
 
+#
+# This is tricky. The large vma gap doesn't actually matter, we are
+# running on bare metal and it's just the relocation destination. We
+# put it far out so that it doesn't clash with the kernel. We do this
+# via vma as otherwise we will corrupt the pe/coff headers.
+#
+add_kernel_sbat() {
+	BZIMAGE="$1"
+	OUTPUT_IMAGE="$2"
+	SBAT_CSV="$3"
+
+	objcopy --add-section .sbat=${SBAT_CSV} \
+		--set-section-flags .sbat=contents,alloc,load,readonly \
+		--adjust-section-vma .sbat=0x3000000 \
+		--set-section-alignment .sbat=4096 \
+		${BZIMAGE} \
+		${OUTPUT_IMAGE}
+}
+
 # usage: sysroot_create_image_file SYSROOT_DIR FILE SIZE
 sysroot_create_image_file() {
 	local tmp_image_dir
@@ -227,6 +246,7 @@ sysroot_create_image_file() {
 	sudo -E bash -ec "
 	$(declare -f sysroot_do_unmount)
 	$(declare -f mformat_partition)
+	$(declare -f add_kernel_sbat)
 	create_image_cleanup() {
 		set -e
 		sysroot_do_unmount '$tmp_image_dir/boot' || true
@@ -295,22 +315,18 @@ sysroot_create_image_file() {
 	rm -f $tmp_image_dir/boot/EFI/LINUX/LINUX.CSV.tmp
 
 	if [ "$HOSTBUILD" = "1" ]; then
-		objcopy --set-section-alignment '.sbat=512' \
-			--add-section .sbat=$PWD/scripts/kernel_sbat.csv \
-			--adjust-section-vma .sbat+50000000 \
-			$PWD/linux/arch/x86_64/boot/bzImage \
-			$PWD/linux/arch/x86_64/boot/bzImage.sbat
+		add_kernel_sbat $PWD/linux/arch/x86_64/boot/bzImage \
+			$PWD/linux/arch/x86_64/boot/bzImage.efi \
+			$PWD/scripts/kernel_sbat.csv
 		sbsign 	--key $PWD/build/keydata/MOK.priv \
-			--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage.sbat \
+			--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage.efi \
 			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
 	else
-		objcopy --set-section-alignment '.sbat=512' \
-			--add-section .sbat=$PWD/scripts/kernel_sbat.csv \
-			--adjust-section-vma .sbat+50000000 \
-			$PWD/build/linux/arch/x86_64/boot/bzImage \
-			$PWD/build/linux/arch/x86_64/boot/bzImage.sbat
+		add_kernel_sbat $PWD/build/linux/arch/x86_64/boot/bzImage \
+			$PWD/build/linux/arch/x86_64/boot/bzImage.efi \
+			$PWD/scripts/kernel_sbat.csv
 		sbsign	--key $PWD/build/keydata/MOK.priv \
-			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage.sbat \
+			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage.efi \
 			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
 	fi
 

@@ -255,28 +255,22 @@ INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
   INF  UefiPayloadPkg/SecureBootEnrollDefaultKeys/SecureBootSetup.inf
 
   FILE FREEFORM = 85254ea7-4759-4fc4-82d4-5eed5fb0a4a0 {
-    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/pk.crt
+    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/MOK-PK.der
     SECTION UI = "PK Default"
   }
 
   FILE FREEFORM = 6f64916e-9f7a-4c35-b952-cd041efb05a3 {
-    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/pk.crt
-#    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/kek-system76.crt
-#    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/kek-microsoft.crt
+    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/MOK-KEK.der
     SECTION UI = "KEK Default"
   }
 
   FILE FREEFORM = c491d352-7623-4843-accc-2791a7574421 {
-    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/pk.crt
-#    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/db-system76.crt
-#    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/db-1.crt
-#    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/db-2.crt
+    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/MOK-DB.der
     SECTION UI = "DB Default"
   }
 
   FILE FREEFORM = 5740766a-718e-4dc0-9935-c36f7d3f884f {
-    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/pk.crt
-#    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/crl.bin
+    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/empty-dbx.esl
     SECTION UI = "DBX Default"
   }
 !endif

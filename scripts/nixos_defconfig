@@ -65,8 +65,9 @@ CONFIG_EFI=y
 CONFIG_EFI_STUB=y
 CONFIG_EFI_MIXED=y
 CONFIG_HZ_1000=y
-CONFIG_CMDLINE="root=/dev/nvme0n1p1 console=ttyS0 mem=8G nokaslr ignore_loglevel intel_iommu=sm_on rw earlyprintk=ttyS0 kvm-intel.pkvm=1"
 CONFIG_CMDLINE_BOOL=y
+CONFIG_CMDLINE="root=/dev/nvme0n1p2 earlyprintk=ttyS0 console=ttyS0,115200 mem=8G nokaslr ignore_loglevel intel_iommu=sm_on rw kvm-intel.pkvm=1"
+CONFIG_CMDLINE_OVERRIDE=y
 CONFIG_HIBERNATION=y
 CONFIG_PM_WAKELOCKS=y
 CONFIG_PM_DEBUG=y

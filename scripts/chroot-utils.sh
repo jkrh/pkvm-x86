@@ -15,6 +15,8 @@ if [ -z "$KERNEL_CMDLINE" ]; then
 		KERNEL_CMDLINE=`cat $BASE_DIR/platform/q35/vars.mk`
 	fi
 fi
+[ -z "$PRIVATEKEY" ] && PRIVATEKEY="$PWD/build/keydata/MOK-DB.priv"
+[ -z "$PUBLICKEY" ] && PUBLICKEY="$PWD/build/keydata/MOK-DB.pem"
 
 # usage: sysroot_error MESSAGE
 sysroot_error() {
@@ -189,7 +191,6 @@ mformat_partition() {
 	VOLUME_LABEL="EFIBOOT"
 	TEMP_IMAGE="temp_esp.img"
 
-	set -x
 	PARTITION_SECTORS=$(parted -s ${DEVICE} unit s print | sed -e 's/s//g' | grep "^ ${PARTITION_NUM} " | awk '{print $4}')
 	SECTOR_SIZE=512 # Assume 512-byte sectors
 	PARTITION_BYTES=$((PARTITION_SECTORS * SECTOR_SIZE))
@@ -318,32 +319,33 @@ sysroot_create_image_file() {
 		add_kernel_sbat $PWD/linux/arch/x86_64/boot/bzImage \
 			$PWD/linux/arch/x86_64/boot/bzImage.efi \
 			$PWD/scripts/kernel_sbat.csv
-		sbsign 	--key $PWD/build/keydata/MOK.priv \
-			--cert $PWD/build/keydata/MOK.pem $PWD/linux/arch/x86_64/boot/bzImage.efi \
+		sbsign 	--key $PRIVATEKEY \
+			--cert $PUBLICKEY $PWD/linux/arch/x86_64/boot/bzImage.efi \
 			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
 	else
 		add_kernel_sbat $PWD/build/linux/arch/x86_64/boot/bzImage \
 			$PWD/build/linux/arch/x86_64/boot/bzImage.efi \
 			$PWD/scripts/kernel_sbat.csv
-		sbsign	--key $PWD/build/keydata/MOK.priv \
-			--cert $PWD/build/keydata/MOK.pem $PWD/build/linux/arch/x86_64/boot/bzImage.efi \
+		sbsign	--key $PRIVATEKEY \
+			--cert $PUBLICKEY $PWD/build/linux/arch/x86_64/boot/bzImage.efi \
 			--output $tmp_image_dir/boot/EFI/LINUX/LINUX.EFI
 	fi
 
-	sbsign  --key $PWD/build/keydata/MOK.priv \
-		--cert $PWD/build/keydata/MOK.pem $tmp_image_dir/boot/EFI/BOOT/shimx64.efi \
+	sbsign  --key $PRIVATEKEY \
+		--cert $PUBLICKEY $tmp_image_dir/boot/EFI/BOOT/shimx64.efi \
 		--output $tmp_image_dir/boot/EFI/BOOT/shimx64.efi.tmp
 	mv $tmp_image_dir/boot/EFI/BOOT/shimx64.efi.tmp $tmp_image_dir/boot/EFI/BOOT/shimx64.efi
+	cp $tmp_image_dir/boot/EFI/BOOT/shimx64.efi $tmp_image_dir/boot/EFI/BOOT/BOOTX64.EFI
 
-	sbsign  --key $PWD/build/keydata/MOK.priv \
-		--cert $PWD/build/keydata/MOK.pem $tmp_image_dir/boot/EFI/BOOT/mmx64.efi \
+	sbsign  --key $PRIVATEKEY \
+		--cert $PUBLICKEY $tmp_image_dir/boot/EFI/BOOT/mmx64.efi \
 		--output $tmp_image_dir/boot/EFI/BOOT/mmx64.efi.tmp
 	mv $tmp_image_dir/boot/EFI/BOOT/mmx64.efi.tmp $tmp_image_dir/boot/EFI/BOOT/mmx64.efi
 
-	if [ -e $PWD/build/keydata/MOK.der ]; then
-		cp $PWD/build/keydata/MOK.der $tmp_image_dir/boot/EFI/BOOT/
+	if [ -e $PWD/build/keydata/MOK-DB.der ]; then
+		cp $PWD/build/keydata/MOK-DB.der $tmp_image_dir/boot/EFI/BOOT/
 		mkdir -p '$tmp_image_dir/var/lib/shim-signed/mok'
-		cp $PWD/build/keydata/MOK.der '$tmp_image_dir/var/lib/shim-signed/mok'
+		cp $PWD/build/keydata/MOK-DB.der '$tmp_image_dir/var/lib/shim-signed/mok'
 	fi
 	"
 }

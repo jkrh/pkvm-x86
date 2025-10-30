@@ -1,4 +1,4 @@
-From 1d9763a0f0dda05d76592bea5c9f874423d58a08 Mon Sep 17 00:00:00 2001
+From 7b114f015d11511c2a0f43031aa46ea16453f42e Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Wed, 30 Jul 2025 14:00:56 +0300
 Subject: [PATCH] Add support for pKVM
@@ -33,14 +33,14 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  qapi/qom.json                            |  16 +
  qemu-options.hx                          |  10 +
  target/i386/meson.build                  |   2 +
- target/i386/pkvm.c                       | 663 +++++++++++++++++++++++
+ target/i386/pkvm.c                       | 669 +++++++++++++++++++++++
  target/i386/pkvm.h                       |  36 ++
- 15 files changed, 849 insertions(+), 84 deletions(-)
+ 15 files changed, 855 insertions(+), 84 deletions(-)
  create mode 100644 target/i386/pkvm.c
  create mode 100644 target/i386/pkvm.h
 
 diff --git a/configs/devices/i386-softmmu/default.mak b/configs/devices/i386-softmmu/default.mak
-index bc0479a7e0..680ce39a66 100644
+index bc0479a7e0a3..680ce39a66c5 100644
 --- a/configs/devices/i386-softmmu/default.mak
 +++ b/configs/devices/i386-softmmu/default.mak
 @@ -14,6 +14,7 @@
@@ -52,7 +52,7 @@ index bc0479a7e0..680ce39a66 100644
  #CONFIG_QXL=n
  #CONFIG_SEV=n
 diff --git a/hw/acpi/bios-linker-loader.c b/hw/acpi/bios-linker-loader.c
-index c9ffe449aa..8986ff9700 100644
+index c9ffe449aac9..8986ff970004 100644
 --- a/hw/acpi/bios-linker-loader.c
 +++ b/hw/acpi/bios-linker-loader.c
 @@ -29,84 +29,6 @@
@@ -141,7 +141,7 @@ index c9ffe449aa..8986ff9700 100644
  /*
   * BiosLinkerFileEntry:
 diff --git a/hw/i386/Kconfig b/hw/i386/Kconfig
-index 3a0e2b8ebb..60e94e5579 100644
+index 3a0e2b8ebbb6..60e94e5579c8 100644
 --- a/hw/i386/Kconfig
 +++ b/hw/i386/Kconfig
 @@ -30,6 +30,7 @@ config PC
@@ -161,7 +161,7 @@ index 3a0e2b8ebb..60e94e5579 100644
 +    bool
 +    depends on KVM
 diff --git a/hw/i386/acpi-build.c b/hw/i386/acpi-build.c
-index 423c4959fe..f8222d6218 100644
+index 423c4959fe80..f8222d6218ca 100644
 --- a/hw/i386/acpi-build.c
 +++ b/hw/i386/acpi-build.c
 @@ -80,6 +80,8 @@
@@ -187,7 +187,7 @@ index 423c4959fe..f8222d6218 100644
      acpi_build_reset(build_state);
      vmstate_register(NULL, 0, &vmstate_acpi_build, build_state);
 diff --git a/hw/i386/fw_cfg.c b/hw/i386/fw_cfg.c
-index 5c0bcd5f8a..e94024dcfc 100644
+index 5c0bcd5f8a9f..e94024dcfcf7 100644
 --- a/hw/i386/fw_cfg.c
 +++ b/hw/i386/fw_cfg.c
 @@ -117,8 +117,9 @@ void fw_cfg_build_smbios(PCMachineState *pcms, FWCfgState *fw_cfg,
@@ -215,7 +215,7 @@ index 5c0bcd5f8a..e94024dcfc 100644
  
      /* FW_CFG_MAX_CPUS is a bit confusing/problematic on x86:
 diff --git a/hw/i386/fw_cfg.h b/hw/i386/fw_cfg.h
-index e560fd7be8..809adf3a64 100644
+index e560fd7be82b..809adf3a64ae 100644
 --- a/hw/i386/fw_cfg.h
 +++ b/hw/i386/fw_cfg.h
 @@ -22,7 +22,8 @@
@@ -229,7 +229,7 @@ index e560fd7be8..809adf3a64 100644
                           SmbiosEntryPointType ep_type);
  void fw_cfg_build_feature_control(MachineState *ms, FWCfgState *fw_cfg);
 diff --git a/hw/i386/pc.c b/hw/i386/pc.c
-index 2f58e73d33..6dcf8460c6 100644
+index 2f58e73d3347..6dcf8460c68d 100644
 --- a/hw/i386/pc.c
 +++ b/hw/i386/pc.c
 @@ -65,6 +65,7 @@
@@ -269,7 +269,7 @@ index 2f58e73d33..6dcf8460c6 100644
      rom_set_fw(fw_cfg);
  
 diff --git a/hw/i386/pc_q35.c b/hw/i386/pc_q35.c
-index b309b2b378..697b158788 100644
+index b309b2b378db..697b15878896 100644
 --- a/hw/i386/pc_q35.c
 +++ b/hw/i386/pc_q35.c
 @@ -62,6 +62,7 @@
@@ -290,7 +290,7 @@ index b309b2b378..697b158788 100644
  
  #define DEFINE_Q35_MACHINE(major, minor) \
 diff --git a/hw/i386/x86-common.c b/hw/i386/x86-common.c
-index b1b5f11e73..a42048bfaf 100644
+index b1b5f11e7396..a42048bfaf0b 100644
 --- a/hw/i386/x86-common.c
 +++ b/hw/i386/x86-common.c
 @@ -51,6 +51,8 @@
@@ -323,7 +323,7 @@ index b1b5f11e73..a42048bfaf 100644
          GMappedFile *mapped_file;
          GError *gerr = NULL;
 diff --git a/include/hw/acpi/bios-linker-loader.h b/include/hw/acpi/bios-linker-loader.h
-index a711dbced8..183a3ccb12 100644
+index a711dbced85e..183a3ccb1203 100644
 --- a/include/hw/acpi/bios-linker-loader.h
 +++ b/include/hw/acpi/bios-linker-loader.h
 @@ -1,6 +1,7 @@
@@ -421,7 +421,7 @@ index a711dbced8..183a3ccb12 100644
 +
  #endif
 diff --git a/qapi/qom.json b/qapi/qom.json
-index 830cb2ffe7..f810bd7dfc 100644
+index 830cb2ffe781..f810bd7dfccb 100644
 --- a/qapi/qom.json
 +++ b/qapi/qom.json
 @@ -1148,6 +1148,20 @@
@@ -462,7 +462,7 @@ index 830cb2ffe7..f810bd7dfc 100644
                                        'if': 'CONFIG_LINUX' },
        'qtest':                      'QtestProperties',
 diff --git a/qemu-options.hx b/qemu-options.hx
-index ab23f14d21..01c7f81b3b 100644
+index ab23f14d2178..01c7f81b3bbd 100644
 --- a/qemu-options.hx
 +++ b/qemu-options.hx
 @@ -6206,6 +6206,16 @@ SRST
@@ -483,7 +483,7 @@ index ab23f14d21..01c7f81b3b 100644
          Create an authorization object that will control access to
          network services.
 diff --git a/target/i386/meson.build b/target/i386/meson.build
-index 092af34e2d..3958d218b6 100644
+index 092af34e2d85..3958d218b63a 100644
 --- a/target/i386/meson.build
 +++ b/target/i386/meson.build
 @@ -7,6 +7,7 @@ i386_ss.add(files(
@@ -504,10 +504,10 @@ index 092af34e2d..3958d218b6 100644
  
 diff --git a/target/i386/pkvm.c b/target/i386/pkvm.c
 new file mode 100644
-index 0000000000..ed0787c0ed
+index 000000000000..6aebc4444f38
 --- /dev/null
 +++ b/target/i386/pkvm.c
-@@ -0,0 +1,663 @@
+@@ -0,0 +1,669 @@
 +/*
 + * QEMU pKVM support
 + *
@@ -534,6 +534,7 @@ index 0000000000..ed0787c0ed
 +#include "hw/i386/e820_memory_layout.h"
 +#include "qemu/range.h"
 +#include "qom/object_interfaces.h"
++#include "system/system.h"
 +#include "confidential-guest.h"
 +
 +#include "pkvm.h"
@@ -1051,6 +1052,11 @@ index 0000000000..ed0787c0ed
 +        return 0;
 +    }
 +
++    if (!should_mlock(mlock_state)) {
++        error_setg(errp, "pKVM requires '-overcommit mem-lock=on'");
++        return -1;
++    }
++
 +    x86mc->fwcfg_dma_enabled = PKVM_GUEST_GET_CLASS(pkvm)->fwcfg_dma;
 +
 +    cgs->ready = true;
@@ -1173,7 +1179,7 @@ index 0000000000..ed0787c0ed
 +type_init(pkvm_register_types);
 diff --git a/target/i386/pkvm.h b/target/i386/pkvm.h
 new file mode 100644
-index 0000000000..8d4584f207
+index 000000000000..8d4584f207f9
 --- /dev/null
 +++ b/target/i386/pkvm.h
 @@ -0,0 +1,36 @@

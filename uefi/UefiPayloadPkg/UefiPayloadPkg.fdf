@@ -273,6 +273,10 @@ INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
     SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/empty-dbx.esl
     SECTION UI = "DBX Default"
   }
+
+  FILE FREEFORM = 7a2342d2-b069-4fbe-a56c-4066da043ce0 {
+    SECTION RAW = UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/DeletePK.auth
+  }
 !endif
 
 #

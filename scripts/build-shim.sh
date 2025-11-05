@@ -1,5 +1,7 @@
 #!/bin/sh -e
 
+PYTHONPATH=$PYTHONPATH:$PWD/uefi/firmware-open/edk2/BaseTools/Source/Python
+
 SHIM_GUID="605dab50-e046-4300-abb6-3dd810dd8b23"
 KEYDIR=$PWD/build/keydata
 DESTDIR=$PWD/build/shim
@@ -28,6 +30,9 @@ if [ ! -e $KEYDIR/MOK-DB.esl ]; then
 	# Empty revocation list
 	cert-to-efi-sig-list -g $GUID /dev/null $KEYDIR/empty-dbx.esl
 
+	touch empty_file.bin
+	$PWD/scripts/create_auth_payload.py
+
 	#
 	# To use ^ for signing, first import to shim:
 	# mokutil --import MOK-DB.der
@@ -44,6 +49,7 @@ fi
 cd $PWD/uefi/shim
 cp $KEYDIR/*.der $BASE_DIR/uefi/firmware-open/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/
 cp $KEYDIR/*.esl $BASE_DIR/uefi/firmware-open/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/
+cp $KEYDIR/*.auth $BASE_DIR/uefi/firmware-open/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/
 make clean
 make FALLBACK_VERBOSE=1 DEBUG=1 SHIM_DEBUG=1 VENDOR_CERT_FILE=$KEYDIR/MOK-DB.der DESTDIR=$DESTDIR EFIDIR=BOOT DEFAULT_LOADER='\\EFI\\LINUX\\LINUX.EFI' install install-debuginfo
 cp *.debug ../../build/shim/boot/efi/EFI/BOOT

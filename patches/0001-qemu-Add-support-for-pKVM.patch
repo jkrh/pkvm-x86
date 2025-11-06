@@ -1,4 +1,4 @@
-From 7b114f015d11511c2a0f43031aa46ea16453f42e Mon Sep 17 00:00:00 2001
+From ed28d28d9a8dbc1df6abfe30eee43549e5991db7 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Wed, 30 Jul 2025 14:00:56 +0300
 Subject: [PATCH] Add support for pKVM
@@ -24,8 +24,8 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  hw/acpi/bios-linker-loader.c             |  78 ---
  hw/i386/Kconfig                          |   5 +
  hw/i386/acpi-build.c                     |   8 +
- hw/i386/fw_cfg.c                         |  10 +-
- hw/i386/fw_cfg.h                         |   3 +-
+ hw/i386/fw_cfg.c                         |  11 +-
+ hw/i386/fw_cfg.h                         |   4 +-
  hw/i386/pc.c                             |   8 +-
  hw/i386/pc_q35.c                         |   3 +
  hw/i386/x86-common.c                     |   8 +
@@ -33,9 +33,9 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  qapi/qom.json                            |  16 +
  qemu-options.hx                          |  10 +
  target/i386/meson.build                  |   2 +
- target/i386/pkvm.c                       | 669 +++++++++++++++++++++++
+ target/i386/pkvm.c                       | 723 +++++++++++++++++++++++
  target/i386/pkvm.h                       |  36 ++
- 15 files changed, 855 insertions(+), 84 deletions(-)
+ 15 files changed, 911 insertions(+), 84 deletions(-)
  create mode 100644 target/i386/pkvm.c
  create mode 100644 target/i386/pkvm.h
 
@@ -187,10 +187,18 @@ index 423c4959fe80..f8222d6218ca 100644
      acpi_build_reset(build_state);
      vmstate_register(NULL, 0, &vmstate_acpi_build, build_state);
 diff --git a/hw/i386/fw_cfg.c b/hw/i386/fw_cfg.c
-index 5c0bcd5f8a9f..e94024dcfcf7 100644
+index 5c0bcd5f8a9f..71e9acd89541 100644
 --- a/hw/i386/fw_cfg.c
 +++ b/hw/i386/fw_cfg.c
-@@ -117,8 +117,9 @@ void fw_cfg_build_smbios(PCMachineState *pcms, FWCfgState *fw_cfg,
+@@ -40,6 +40,7 @@ const char *fw_cfg_arch_key_name(uint16_t key)
+         {FW_CFG_SMBIOS_ENTRIES, "smbios_entries"},
+         {FW_CFG_IRQ0_OVERRIDE, "irq0_override"},
+         {FW_CFG_HPET, "hpet"},
++        {FW_CFG_PKVM_IMAGES_ADDR, "pkvm_images_addr"},
+     };
+ 
+     for (size_t i = 0; i < ARRAY_SIZE(fw_cfg_arch_wellknown_keys); i++) {
+@@ -117,8 +118,9 @@ void fw_cfg_build_smbios(PCMachineState *pcms, FWCfgState *fw_cfg,
  }
  
  FWCfgState *fw_cfg_arch_create(MachineState *ms,
@@ -202,7 +210,7 @@ index 5c0bcd5f8a9f..e94024dcfcf7 100644
  {
      FWCfgState *fw_cfg;
      uint64_t *numa_fw_cfg;
-@@ -127,8 +128,9 @@ FWCfgState *fw_cfg_arch_create(MachineState *ms,
+@@ -127,8 +129,9 @@ FWCfgState *fw_cfg_arch_create(MachineState *ms,
      const CPUArchIdList *cpus = mc->possible_cpu_arch_ids(ms);
      int nb_numa_nodes = ms->numa_state->num_nodes;
  
@@ -215,10 +223,14 @@ index 5c0bcd5f8a9f..e94024dcfcf7 100644
  
      /* FW_CFG_MAX_CPUS is a bit confusing/problematic on x86:
 diff --git a/hw/i386/fw_cfg.h b/hw/i386/fw_cfg.h
-index e560fd7be82b..809adf3a64ae 100644
+index e560fd7be82b..7928bd982705 100644
 --- a/hw/i386/fw_cfg.h
 +++ b/hw/i386/fw_cfg.h
-@@ -22,7 +22,8 @@
+@@ -19,10 +19,12 @@
+ #define FW_CFG_SMBIOS_ENTRIES   (FW_CFG_ARCH_LOCAL + 1)
+ #define FW_CFG_IRQ0_OVERRIDE    (FW_CFG_ARCH_LOCAL + 2)
+ #define FW_CFG_HPET             (FW_CFG_ARCH_LOCAL + 4)
++#define FW_CFG_PKVM_IMAGES_ADDR (FW_CFG_ARCH_LOCAL + 5)
  
  FWCfgState *fw_cfg_arch_create(MachineState *ms,
                                 uint16_t boot_cpus,
@@ -504,10 +516,10 @@ index 092af34e2d85..3958d218b63a 100644
  
 diff --git a/target/i386/pkvm.c b/target/i386/pkvm.c
 new file mode 100644
-index 000000000000..6aebc4444f38
+index 000000000000..8b11df7cac2a
 --- /dev/null
 +++ b/target/i386/pkvm.c
-@@ -0,0 +1,669 @@
+@@ -0,0 +1,723 @@
 +/*
 + * QEMU pKVM support
 + *
@@ -534,10 +546,12 @@ index 000000000000..6aebc4444f38
 +#include "hw/i386/e820_memory_layout.h"
 +#include "qemu/range.h"
 +#include "qom/object_interfaces.h"
++#include "system/address-spaces.h"
 +#include "system/system.h"
 +#include "confidential-guest.h"
 +
 +#include "pkvm.h"
++#include "hw/i386/fw_cfg.h"
 +
 +#ifndef KVM_X86_PKVM_PROTECTED_VM
 +#define KVM_X86_PKVM_PROTECTED_VM    28
@@ -556,6 +570,8 @@ index 000000000000..6aebc4444f38
 + */
 +struct PKVMGuest {
 +    X86ConfidentialGuest parent_obj;
++    /* Region to load e820 and ACPI tables */
++    hwaddr images_addr;
 +};
 +
 +struct PKVMGuestClass {
@@ -564,9 +580,9 @@ index 000000000000..6aebc4444f38
 +    bool fwcfg_dma;
 +};
 +
-+#define PKVM_LOADADDR_E820 (0x7FB00000)
-+#define PKVM_LOADADDR_FSEG (PKVM_LOADADDR_E820 + 0x10000)
-+#define PKVM_LOADADDR_HIGH (PKVM_LOADADDR_FSEG + 0x10000)
++#define PKVM_LOADADDR_FSEG(base) ((base) + 0x10000)
++#define PKVM_LOADADDR_HIGH(base) (PKVM_LOADADDR_FSEG((base)) + 0x10000)
++#define PKVM_IMAGES_REGION_SIZE (0x500000)
 +
 +/* Allocates descending */
 +#define PKVM_ACPI_ZONE_FSEG_BASE 0xFFF80
@@ -609,6 +625,49 @@ index 000000000000..6aebc4444f38
 +    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
 +
 +    return PKVM_GUEST_GET_CLASS(pkvm)->load_images;
++}
++
++static bool pkvm_init_images_region(void)
++{
++    MachineState *machine = MACHINE(qdev_get_machine());
++    X86MachineState *x86ms = X86_MACHINE(machine);
++    PKVMGuest *pkvm;
++    const char *initrd_filename = machine->initrd_filename;
++    uint32_t images_region_max = x86ms->below_4g_mem_size - 0x28000 - 1;
++
++    if (!pkvm_should_load_images()) {
++        return false;
++    }
++
++    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
++
++    /* The region location depends on whether initrd is supplied. */
++    pkvm->images_addr = (images_region_max - PKVM_IMAGES_REGION_SIZE) & ~4095;
++
++    if (initrd_filename) {
++        int64_t initrd_size = get_image_size(initrd_filename);
++        if (initrd_size > 0) {
++            pkvm->images_addr =
++                (images_region_max - initrd_size - PKVM_IMAGES_REGION_SIZE) & ~4095;
++        }
++    }
++
++    return true;
++}
++
++static hwaddr pkvm_images_region_base(void)
++{
++    PKVMGuest *pkvm;
++
++    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
++
++    if (!pkvm->images_addr) {
++        pkvm_init_images_region();
++    }
++
++    assert(pkvm->images_addr);
++
++    return pkvm->images_addr;
 +}
 +
 +static void pkvm_acpi_free_out_table(gpointer data) {
@@ -843,6 +902,8 @@ index 000000000000..6aebc4444f38
 +}
 +
 +static int pkvm_acpi_add_blobs(PKvmAcpiState *s) {
++    X86MachineState *x86ms = X86_MACHINE(qdev_get_machine());
++    hwaddr images_base = pkvm_images_region_base();
 +    Range fseg = {
 +        .lob = 0xF0000,
 +        .upb = 0xFFFFF,
@@ -865,13 +926,15 @@ index 000000000000..6aebc4444f38
 +        /* The tables intended for F-segment are stored to the same offset,
 +         * but with different base. */
 +        hwaddr load_addr = range_contains(&fseg, addr) ?
-+            PKVM_LOADADDR_FSEG + (PKVM_ACPI_ZONE_FSEG_BASE - addr) : addr;
++            PKVM_LOADADDR_FSEG(images_base) + (PKVM_ACPI_ZONE_FSEG_BASE - addr) : addr;
 +
 +        rom_add_blob(tmp->str, blob->data, blob->len, blob->len, load_addr,
 +                     NULL, NULL, NULL, &address_space_memory, false);
 +
 +        g_string_free(tmp, true);
 +    }
++
++    fw_cfg_add_i32(x86ms->fw_cfg, FW_CFG_PKVM_IMAGES_ADDR, images_base);
 +
 +    return 0;
 +}
@@ -930,12 +993,13 @@ index 000000000000..6aebc4444f38
 +    PKvmAcpiState s;
 +    int i;
 +    int ret = 1;
++    hwaddr high_zone = PKVM_ACPI_ZONE_HIGH_BASE(pkvm_images_region_base());
 +
 +    if (!pkvm_should_load_images()) {
 +        return 0;
 +    }
 +
-+    if (pkvm_acpi_tables_init(&s, tables, PKVM_ACPI_ZONE_FSEG_BASE, PKVM_ACPI_ZONE_HIGH_BASE)) {
++    if (pkvm_acpi_tables_init(&s, tables, PKVM_ACPI_ZONE_FSEG_BASE, high_zone)) {
 +        return -1;
 +    }
 +
@@ -999,6 +1063,7 @@ index 000000000000..6aebc4444f38
 +    GArray *blob;
 +    struct e820_entry *table;
 +    uint32_t n_entries;
++    hwaddr e820_base = pkvm_images_region_base();
 +
 +    struct e820_entry entries[5] = {
 +        { .address = 0, .length = 639 * 1024, .type = E820_RAM },
@@ -1006,7 +1071,7 @@ index 000000000000..6aebc4444f38
 +        { .address = 0xD0000, .length = 128 * 1024, .type = E820_NVS },
 +        { .address = 0xF0000, .length = 64 * 1024, .type = E820_RESERVED },
 +        /* Reserved for the bootloader structures */
-+        { .address = PKVM_LOADADDR_E820, .length = 0x500000, .type = E820_RESERVED },
++        { .address = e820_base, .length = PKVM_IMAGES_REGION_SIZE, .type = E820_RESERVED },
 +    };
 +
 +    if (!pkvm_should_load_images()) {
@@ -1025,7 +1090,7 @@ index 000000000000..6aebc4444f38
 +    n_entries = blob->len / sizeof(struct e820_entry);
 +    g_array_insert_vals(blob, 0, &n_entries, sizeof(n_entries));
 +
-+    rom_add_blob("etc/e820-pkvm", blob->data, blob->len, blob->len, PKVM_LOADADDR_E820,
++    rom_add_blob("etc/e820-pkvm", blob->data, blob->len, blob->len, e820_base,
 +                 NULL, NULL, NULL, &address_space_memory, false);
 +
 +    g_array_free(blob, true);
@@ -1058,6 +1123,7 @@ index 000000000000..6aebc4444f38
 +    }
 +
 +    x86mc->fwcfg_dma_enabled = PKVM_GUEST_GET_CLASS(pkvm)->fwcfg_dma;
++    pkvm->images_addr = 0;
 +
 +    cgs->ready = true;
 +

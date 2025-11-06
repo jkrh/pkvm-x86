@@ -1,4 +1,4 @@
-From 70c6c84a3c54bef8e61bb16c2764140dc8d621ea Mon Sep 17 00:00:00 2001
+From 2ff40a58a3bd3ff3dcf876507bcaf0f4cf9f2323 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Wed, 18 Jun 2025 14:57:02 +0300
 Subject: [PATCH] pkvm: boot with images preloaded to RAM
@@ -14,7 +14,7 @@ VMM to load kernel images, ACPI tables and e820 to the RAM.
 
 Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
 ---
- cc_platform.c         | 153 ++++++++++++++++++++++++++++++++++
+ cc_platform.c         | 159 ++++++++++++++++++++++++++++++++++++
  fw_cfg.c              |  16 ++++
  hwsetup.c             |  16 +++-
  include/cc_platform.h |  22 +++++
@@ -22,17 +22,17 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  main.c                |   8 ++
  meson.build           |   1 +
  tables.c              |   5 ++
- 8 files changed, 403 insertions(+), 4 deletions(-)
+ 8 files changed, 409 insertions(+), 4 deletions(-)
  create mode 100644 cc_platform.c
  create mode 100644 include/cc_platform.h
  create mode 100644 include/pkvm.h
 
 diff --git a/cc_platform.c b/cc_platform.c
 new file mode 100644
-index 0000000..f61074c
+index 000000000000..1e39b8008db6
 --- /dev/null
 +++ b/cc_platform.c
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,159 @@
 +#include "cc_platform.h"
 +#include "string.h"
 +#include "stddef.h"
@@ -43,7 +43,14 @@ index 0000000..f61074c
 +#include "pkvm.h"
 +#include <stdio.h>
 +
++
 +static volatile enum cc_platform cc_platform = CC_PLATFORM_NONE;
++
++#define FW_CFG_PKVM_IMAGES_ADDR		(FW_CFG_ARCH_LOCAL + 5)
++
++static uint32_t pkvm_images_paddr = 0;
++#define PKVM_E820_LOADADDR			(pkvm_images_paddr)
++#define PKVM_FSEG_LOADADDR			(PKVM_E820_LOADADDR + 0x10000)
 +
 +int cc_platform_detect(void)
 +{
@@ -63,15 +70,18 @@ index 0000000..f61074c
 +int cc_platform_fw_cfg_setup(int version)
 +{
 +	switch (cc_platform) {
-+		case CC_PLATFORM_PKVM:
-+			/* DMA needs instruction decoding to bootloader,
-+			 * because #VE is raised to the guest on MMIO access.
-+			 *
-+			 * This is currently unsupported.
-+			 */
-+			return version & ~FW_CFG_VERSION_DMA;
-+		default:
-+			break;
++	case CC_PLATFORM_PKVM:
++		fw_cfg_select(FW_CFG_PKVM_IMAGES_ADDR);
++		pkvm_images_paddr = fw_cfg_readl_le();
++
++		/* DMA needs instruction decoding to bootloader,
++		 * because #VE is raised to the guest on MMIO access.
++		 *
++		 * This is currently unsupported.
++		 */
++		return version & ~FW_CFG_VERSION_DMA;
++	default:
++		break;
 +	}
 +	return version;
 +}
@@ -107,9 +117,6 @@ index 0000000..f61074c
 +
 +	return 0;
 +}
-+
-+#define PKVM_E820_LOADADDR (0x7FB00000)
-+#define PKVM_FSEG_LOADADDR (PKVM_E820_LOADADDR + 0x10000)
 +
 +static void *find_rsdp(void)
 +{
@@ -157,23 +164,22 @@ index 0000000..f61074c
 +		return 1;
 +	}
 +
-+	load_rsdp();
-+
-+	return 0;
++	return load_rsdp();
 +}
 +
 +struct e820map *cc_platform_extract_e820(void)
 +{
 +	struct e820map *e820;
++	uint32_t e820_paddr = PKVM_E820_LOADADDR;
 +
 +	if (cc_platform != CC_PLATFORM_PKVM) {
 +		return NULL;
 +	}
 +
-+	uint32_t nr_map = *(uint32_t *) PKVM_E820_LOADADDR;
++	uint32_t nr_map = *(uint32_t *) e820_paddr;
 +	e820 = malloc(offsetof(struct e820map, map[nr_map]));
 +
-+	memcpy(e820, (void *) PKVM_E820_LOADADDR, offsetof(struct e820map, map[nr_map]));
++	memcpy(e820, (void *) e820_paddr, offsetof(struct e820map, map[nr_map]));
 +
 +	return e820;
 +}
@@ -187,7 +193,7 @@ index 0000000..f61074c
 +	boot_bzimage(args);
 +}
 diff --git a/fw_cfg.c b/fw_cfg.c
-index f3d9605..0b899d5 100644
+index f3d9605c469c..0b899d53a1f3 100644
 --- a/fw_cfg.c
 +++ b/fw_cfg.c
 @@ -10,6 +10,7 @@
@@ -249,7 +255,7 @@ index f3d9605..0b899d5 100644
  	fw_cfg_read(args.setup_addr, HEADER_PEEK_SIZE);
  
 diff --git a/hwsetup.c b/hwsetup.c
-index 250213e..022e232 100644
+index 250213e5c189..022e232eeb29 100644
 --- a/hwsetup.c
 +++ b/hwsetup.c
 @@ -2,6 +2,7 @@
@@ -285,7 +291,7 @@ index 250213e..022e232 100644
  	memcpy(&stext, bios_start, &edata - &stext);
 diff --git a/include/cc_platform.h b/include/cc_platform.h
 new file mode 100644
-index 0000000..f008440
+index 000000000000..f00844035dfb
 --- /dev/null
 +++ b/include/cc_platform.h
 @@ -0,0 +1,22 @@
@@ -313,7 +319,7 @@ index 0000000..f008440
 +#endif /* BIOS_PLATFORM_H */
 diff --git a/include/pkvm.h b/include/pkvm.h
 new file mode 100644
-index 0000000..9bba17e
+index 000000000000..9bba17ecd5f5
 --- /dev/null
 +++ b/include/pkvm.h
 @@ -0,0 +1,186 @@
@@ -504,7 +510,7 @@ index 0000000..9bba17e
 +
 +#endif /* BIOS_PKVM_X86 */
 diff --git a/main.c b/main.c
-index afa2200..1cfabb4 100644
+index afa2200cb0f4..1cfabb40626a 100644
 --- a/main.c
 +++ b/main.c
 @@ -8,6 +8,7 @@
@@ -544,7 +550,7 @@ index afa2200..1cfabb4 100644
  	fw_cfg_setup();
  	extract_acpi();
 diff --git a/meson.build b/meson.build
-index d060f75..35c1bec 100644
+index d060f756e136..35c1bec72af9 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -23,6 +23,7 @@ link_args += cc.get_supported_link_arguments(['-no-pie'])
@@ -556,7 +562,7 @@ index d060f75..35c1bec 100644
      'code32seg.c',
      'cstart.S',
 diff --git a/tables.c b/tables.c
-index 9934a91..266bdc6 100644
+index 9934a913a5b7..266bdc635196 100644
 --- a/tables.c
 +++ b/tables.c
 @@ -3,6 +3,7 @@

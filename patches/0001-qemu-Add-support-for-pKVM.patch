@@ -1,4 +1,4 @@
-From ed28d28d9a8dbc1df6abfe30eee43549e5991db7 Mon Sep 17 00:00:00 2001
+From f0a77d380abe1fdf116a0c11ee3682021f3c3ded Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Wed, 30 Jul 2025 14:00:56 +0300
 Subject: [PATCH] Add support for pKVM
@@ -33,9 +33,9 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  qapi/qom.json                            |  16 +
  qemu-options.hx                          |  10 +
  target/i386/meson.build                  |   2 +
- target/i386/pkvm.c                       | 723 +++++++++++++++++++++++
+ target/i386/pkvm.c                       | 726 +++++++++++++++++++++++
  target/i386/pkvm.h                       |  36 ++
- 15 files changed, 911 insertions(+), 84 deletions(-)
+ 15 files changed, 914 insertions(+), 84 deletions(-)
  create mode 100644 target/i386/pkvm.c
  create mode 100644 target/i386/pkvm.h
 
@@ -516,10 +516,10 @@ index 092af34e2d85..3958d218b63a 100644
  
 diff --git a/target/i386/pkvm.c b/target/i386/pkvm.c
 new file mode 100644
-index 000000000000..8b11df7cac2a
+index 000000000000..e249423bb6b4
 --- /dev/null
 +++ b/target/i386/pkvm.c
-@@ -0,0 +1,723 @@
+@@ -0,0 +1,726 @@
 +/*
 + * QEMU pKVM support
 + *
@@ -659,8 +659,9 @@ index 000000000000..8b11df7cac2a
 +{
 +    PKVMGuest *pkvm;
 +
-+    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
++    assert(pkvm_should_load_images());
 +
++    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
 +    if (!pkvm->images_addr) {
 +        pkvm_init_images_region();
 +    }
@@ -993,11 +994,13 @@ index 000000000000..8b11df7cac2a
 +    PKvmAcpiState s;
 +    int i;
 +    int ret = 1;
-+    hwaddr high_zone = PKVM_ACPI_ZONE_HIGH_BASE(pkvm_images_region_base());
++    hwaddr high_zone;
 +
 +    if (!pkvm_should_load_images()) {
 +        return 0;
 +    }
++
++    high_zone = PKVM_ACPI_ZONE_HIGH_BASE(pkvm_images_region_base());
 +
 +    if (pkvm_acpi_tables_init(&s, tables, PKVM_ACPI_ZONE_FSEG_BASE, high_zone)) {
 +        return -1;
@@ -1063,8 +1066,12 @@ index 000000000000..8b11df7cac2a
 +    GArray *blob;
 +    struct e820_entry *table;
 +    uint32_t n_entries;
-+    hwaddr e820_base = pkvm_images_region_base();
 +
++    if (!pkvm_should_load_images()) {
++        return 0;
++    }
++
++    hwaddr e820_base = pkvm_images_region_base();
 +    struct e820_entry entries[5] = {
 +        { .address = 0, .length = 639 * 1024, .type = E820_RAM },
 +        { .address = 639 * 1024, .length = 1024, .type = E820_RESERVED },
@@ -1073,10 +1080,6 @@ index 000000000000..8b11df7cac2a
 +        /* Reserved for the bootloader structures */
 +        { .address = e820_base, .length = PKVM_IMAGES_REGION_SIZE, .type = E820_RESERVED },
 +    };
-+
-+    if (!pkvm_should_load_images()) {
-+        return 0;
-+    }
 +
 +    blob = g_array_new(false, true, 1);
 +    g_array_append_vals(blob, entries, 5 * sizeof(struct e820_entry));
@@ -1186,7 +1189,7 @@ index 000000000000..8b11df7cac2a
 +{
 +    Object *q35 = object_resolve_type_unambiguous(TYPE_Q35_HOST_DEVICE, NULL);
 +
-+    if (q35) {
++    if (q35 && pkvm_should_load_images()) {
 +        /* To generate a valid ACPI, the host bridge must be enabled */
 +        pkvm_init_mch();
 +        /* To pre-generate ACPI, PM registers must be initialized in for

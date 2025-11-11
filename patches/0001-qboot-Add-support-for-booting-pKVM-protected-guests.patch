@@ -1,4 +1,4 @@
-From 2ff40a58a3bd3ff3dcf876507bcaf0f4cf9f2323 Mon Sep 17 00:00:00 2001
+From 5ad9c63ef55c95a52c199b33c9713f425f5d2615 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Wed, 18 Jun 2025 14:57:02 +0300
 Subject: [PATCH] pkvm: boot with images preloaded to RAM
@@ -14,7 +14,7 @@ VMM to load kernel images, ACPI tables and e820 to the RAM.
 
 Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
 ---
- cc_platform.c         | 159 ++++++++++++++++++++++++++++++++++++
+ cc_platform.c         | 172 ++++++++++++++++++++++++++++++++++++++
  fw_cfg.c              |  16 ++++
  hwsetup.c             |  16 +++-
  include/cc_platform.h |  22 +++++
@@ -22,17 +22,17 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  main.c                |   8 ++
  meson.build           |   1 +
  tables.c              |   5 ++
- 8 files changed, 409 insertions(+), 4 deletions(-)
+ 8 files changed, 422 insertions(+), 4 deletions(-)
  create mode 100644 cc_platform.c
  create mode 100644 include/cc_platform.h
  create mode 100644 include/pkvm.h
 
 diff --git a/cc_platform.c b/cc_platform.c
 new file mode 100644
-index 000000000000..1e39b8008db6
+index 000000000000..481e2038faa6
 --- /dev/null
 +++ b/cc_platform.c
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,172 @@
 +#include "cc_platform.h"
 +#include "string.h"
 +#include "stddef.h"
@@ -40,6 +40,7 @@ index 000000000000..1e39b8008db6
 +#include "bios.h"
 +#include "fw_cfg.h"
 +#include "e820.h"
++#include "memaccess.h"
 +#include "pkvm.h"
 +#include <stdio.h>
 +
@@ -188,6 +189,18 @@ index 000000000000..1e39b8008db6
 +{
 +	if (!parse_bzimage(args)) {
 +		return;
++	}
++
++	/* initrd is preloaded, adjust address */
++	if (args->initrd_size) {
++		uint32_t initrd_addr;
++		uint8_t *header = args->setup_addr;
++
++		fw_cfg_select(FW_CFG_INITRD_ADDR);
++		initrd_addr = fw_cfg_readl_le();
++
++		args->initrd_addr = (void *) initrd_addr;
++		stl_p(header+0x218, initrd_addr);
 +	}
 +
 +	boot_bzimage(args);

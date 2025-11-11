@@ -9,6 +9,8 @@ export CORE_DIR := $(BASE_DIR)/core
 export KERNEL_DIR := $(BASE_DIR)/linux
 export QEMUDIR := $(BASE_DIR)/qemu
 export TOOLDIR := $(BASE_DIR)/buildtools
+export FWOPEN ?= $(BASE_DIR)/uefi/firmware-open
+
 export PATH := $(TOOLDIR)/usr/bin:$(TOOLDIR)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(TOOLDIR)/usr/lib:$(TOOLDIR)/usr/local/lib:$(TOOLDIR)/usr/local/lib/x86_64-linux-gnu
 export NJOBS := $(shell exec nproc)

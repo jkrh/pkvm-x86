@@ -1,12 +1,14 @@
 #!/usr/bin/env -S bash -e
 
-FWOPEN=$PWD/uefi/firmware-open
+[ -z "$FWOPEN" ] && FWOPEN=$PWD/uefi/firmware-open
 XGXX=$FWOPEN/coreboot/util/crossgcc/xgcc/bin/x86_64-elf-gcc
 
 if [ "x$1" = "xclean" ]; then
 	cd $FWOPEN/coreboot; make distclean; cd -
+	cd $FWOPEN/edk2/BaseTools; make clean; cd -
 	rm -rf $FWOPEN/coreboot/build/*
 	rm -rf $FWOPEN/edk2/Build/*
+	rm -rf $FWOPEN/build
 	rm -rf build/*.rom
 	exit 0
 fi
@@ -24,10 +26,11 @@ if [ "x$RUSTSETUP" = "x1" ]; then
 fi
 
 cd $FWOPEN
-cp ../../scripts/coreboot.config models/qemu/coreboot.config
-cp ../../uefi/UefiPayloadPkg/build.sh scripts/build.sh
-cp ../../uefi/UefiPayloadPkg/* edk2/UefiPayloadPkg/
-
+if [ ! -e "$FWOPEN/edk2/MdeModulePkg/Universal/BdsDxe/Loadfile.h" ]; then
+	cp ../../scripts/coreboot.config models/qemu/coreboot.config
+	cp ../../uefi/UefiPayloadPkg/build.sh scripts/build.sh
+	cp ../../uefi/UefiPayloadPkg/* edk2/UefiPayloadPkg/
+fi
 . ~/.cargo/env
 BUILD_TYPE=$BUILD_TYPE ./scripts/build.sh qemu
-cp $FWOPEN/build/qemu/firmware.rom ../../build
+cp $FWOPEN/build/qemu/firmware.rom $BASE_DIR/build

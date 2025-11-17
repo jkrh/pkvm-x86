@@ -13,8 +13,7 @@ endif
 
 ifeq ($(UEFI_SHELL),1)
   UEFI_BOOT_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/DEBUG_COREBOOT/X64/Shell.efi
-else
-  UEFI_BOOT_APP := dummy
+  KSMI_TEST_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/DEBUG_COREBOOT/X64/KSMItApp.efi
 endif
 
 # VIRTIO not working yet in the uefi payload, please fix
@@ -86,13 +85,19 @@ QEMUCMD := $(QEMU) $(QEMUOPTS) \
 	   -serial file:$(BASE_DIR)/tty0.log -serial file:$(BASE_DIR)/tty1.log -serial file:$(BASE_DIR)/tty2.log
 endif
 
+ifeq ($(VNC),1)
+# Use "ssh -L 5901:localhost:5901 <username>@<remote host>" to tunnel VNC to your local machine
+# Use remmina or equivalent to view the display at localhost (connect to localhost:5901)
+QEMUCMD := $(QEMUCMD) -vnc 127.0.0.1:1
+endif
+
 ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
 endif
 
 $(BASE_DIR)/build/usbstick.img:
 	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
-	$(UEFI_BOOT_APP)
+	$(UEFI_BOOT_APP) $(KSMI_TEST_APP)
 	@if [ ! -e $(BASE_DIR)/build/firmware-clean.rom ]; then \
 		cp $(BASE_DIR)/build/firmware.rom $(BASE_DIR)/build/firmware-clean.rom || true; \
 	fi

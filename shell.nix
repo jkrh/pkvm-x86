@@ -1,10 +1,13 @@
-{pkgs ? import <nixpkgs> {}}:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 with pkgs;
 let
-  buildInputsFrom = inputs:
-  (lib.subtractLists inputs (lib.flatten (lib.catAttrs "buildInputs" inputs)));
+  buildInputsFrom =
+    inputs: (lib.subtractLists inputs (lib.flatten (lib.catAttrs "buildInputs" inputs)));
 
-in mkShellNoCC rec {
+in
+mkShellNoCC rec {
   nativeBuildInputs = [
     linuxPackages.kernel
     gdb

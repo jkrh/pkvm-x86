@@ -97,6 +97,15 @@ EOF
 echo "Installing kernel modules"
 sudo make -C"$BASE_DIR/linux" INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH="$TEMP_SYSROOT_DIR" -j"$(nproc)" modules_install
 
+if [ "x$PAM" = "x1" ] && [ -d "${FWOPEN}/coreboot/util/ksmi/ksmi-pam" ]; then
+	if [ -d "${BASE_DIR}/linux/drivers/firmware/ksmi" ]; then
+		echo "Installing PAM module"
+		sudo make -C"$FWOPEN/coreboot/util/ksmi/ksmi-pam" INSTALL_MOD_ROOT="$TEMP_SYSROOT_DIR" -j"$(nproc)" install
+	else
+		echo "PAM install cancelled. KSMI driver not present"
+	fi
+fi
+
 sysroot_unmount_all "$TEMP_SYSROOT_DIR"
 sync
 

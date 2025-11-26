@@ -16,13 +16,20 @@ ifeq ($(UEFI_SHELL),1)
   KSMI_TEST_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/DEBUG_COREBOOT/X64/KSMItApp.efi
 endif
 
+# Curently active SMMSTORE is in the $(BASE_DIR)/build/firmware.rom.
+# To clean SMMSTORE just delete $(BASE_DIR)/build/firmware.rom)
+# to take a new copy of current build from $(BASE_DIR)/build/qemu/firmware.rom
+$(shell \
+if [ ! -e $(BASE_DIR)/build/firmware.rom ]; then \
+	cp $(BASE_DIR)/build/qemu/firmware.rom $(BASE_DIR)/build/firmware.rom ; \
+fi)
+
 # VIRTIO not working yet in the uefi payload, please fix
 ifeq ($(OPENFW),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
 # QEMU Q35 model has 16MB firmware limit max or it will overlap with the io-apic
 MACHINEOPTS := smm=on,max-fw-size=16M
-# SMMSTORE is in the firmware.rom. Remember to clean.
 NVRAM := -drive if=pflash,format=raw,unit=0,file=$(BASE_DIR)/build/firmware.rom,readonly=off
 USBSTICK := -drive if=none,id=usbdrive,format=raw,file=$(BASE_DIR)/build/usbstick.img \
 	-device usb-storage,bus=ehci.0,drive=usbdrive
@@ -98,9 +105,6 @@ endif
 $(BASE_DIR)/build/usbstick.img:
 	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
 	$(UEFI_BOOT_APP) $(KSMI_TEST_APP)
-	@if [ ! -e $(BASE_DIR)/build/firmware-clean.rom ]; then \
-		cp $(BASE_DIR)/build/firmware.rom $(BASE_DIR)/build/firmware-clean.rom || true; \
-	fi
 
 run:
 	@echo "------------------------------------------------------------------------------------------"
@@ -117,9 +121,7 @@ endif
 clean:
 	@rm -rf $(BASE_DIR)/build/OVMF_VARS.fd
 	@rm -rf $(BASE_DIR)/build/usbstick.img
-	@if [ -e $(BASE_DIR)/build/firmware-clean.rom ]; then \
-		cp $(BASE_DIR)/build/firmware-clean.rom $(BASE_DIR)/build/firmware.rom ; \
-	fi
+	@rm -rf $(BASE_DIR)/build/qemu/firmware.rom
 
 poorman:
 	@PROG=$(KERNEL) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \

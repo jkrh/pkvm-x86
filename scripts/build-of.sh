@@ -1,6 +1,7 @@
 #!/usr/bin/env -S bash -e
 
 [ -z "$FWOPEN" ] && FWOPEN=$PWD/uefi/firmware-open
+[ -z "$TARGET" ] && TARGET=qemu
 XGXX=$FWOPEN/coreboot/util/crossgcc/xgcc/bin/x86_64-elf-gcc
 
 if [ "x$1" = "xclean" ]; then
@@ -9,6 +10,7 @@ if [ "x$1" = "xclean" ]; then
 	rm -rf $FWOPEN/coreboot/build/*
 	rm -rf $FWOPEN/edk2/Build/*
 	rm -rf $FWOPEN/build
+	rm -rf build/$TARGET
 	rm -rf build/*.rom
 	exit 0
 fi
@@ -40,5 +42,7 @@ if [ ! -e "$FWOPEN/edk2/MdeModulePkg/Universal/BdsDxe/Loadfile.h" ]; then
 	cp ../../uefi/UefiPayloadPkg/* edk2/UefiPayloadPkg/
 fi
 . ~/.cargo/env
-BUILD_TYPE=$BUILD_TYPE ./scripts/build.sh qemu
-cp $FWOPEN/build/qemu/firmware.rom $BASE_DIR/build
+BUILD_TYPE=$BUILD_TYPE ./scripts/build.sh $TARGET
+[ -e "${BASE_DIR}/build/firmware.rom" ] && rm ${BASE_DIR}/build/firmware.rom
+[ ! -d "${BASE_DIR}/build/${TARGET}" ] && mkdir -p $BASE_DIR/build/$TARGET
+cp $FWOPEN/build/$TARGET/firmware.rom $BASE_DIR/build/$TARGET

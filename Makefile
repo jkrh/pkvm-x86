@@ -46,6 +46,9 @@ openfw:
 openfw-clean:
 	@./scripts/build-of.sh clean
 
+openfw-setup:
+	@./scripts/build-of.sh setup
+
 kernel:
 	@cp scripts/nixos_* $(KERNEL_DIR)/arch/x86/configs/
 	$(MAKE) CC="$(CC)" -C$(KERNEL_DIR) -j$(NJOBS) nixos_defconfig bzImage modules

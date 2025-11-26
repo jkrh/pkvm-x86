@@ -13,6 +13,14 @@ if [ "x$1" = "xclean" ]; then
 	exit 0
 fi
 
+if [ "x$1" = "xsetup" ]; then
+	pushd $FWOPEN
+	git submodule update --init --checkout --recursive
+	git lfs pull
+	popd
+	exit 0
+fi
+
 if [ ! -e "$XGXX" ]; then
 	cd $FWOPEN/coreboot
 	make crossgcc CPUS=$(nproc)

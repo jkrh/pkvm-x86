@@ -12,8 +12,8 @@ ifeq ($(CLEAN_USB),1)
 endif
 
 ifeq ($(UEFI_SHELL),1)
-  UEFI_BOOT_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/DEBUG_COREBOOT/X64/Shell.efi
-  KSMI_TEST_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/DEBUG_COREBOOT/X64/KSMItApp.efi
+  UEFI_BOOT_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/${BUILD_TYPE}_COREBOOT/X64/Shell.efi
+  KSMI_TEST_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/${BUILD_TYPE}_COREBOOT/X64/KSMItApp.efi
 endif
 
 # Curently active SMMSTORE is in the $(BASE_DIR)/build/firmware.rom.

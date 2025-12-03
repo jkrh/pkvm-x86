@@ -7,46 +7,51 @@ WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 MEM := -m 8G
 
-ifeq ($(CLEAN_USB),1)
-  $(shell rm -f $(BASE_DIR)/build/usbstick.img)
-endif
-
 ifeq ($(UEFI_SHELL),1)
   UEFI_BOOT_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/${BUILD_TYPE}_COREBOOT/X64/Shell.efi
   KSMI_TEST_APP := ${FWOPEN}/edk2/Build/UefiPayloadPkgX64/${BUILD_TYPE}_COREBOOT/X64/KSMItApp.efi
 endif
 
-# Curently active SMMSTORE is in the $(BASE_DIR)/build/firmware.rom.
-# To clean SMMSTORE just delete $(BASE_DIR)/build/firmware.rom)
-# to take a new copy of current build from $(BASE_DIR)/build/qemu/firmware.rom
-$(shell \
-if [ ! -e $(BASE_DIR)/build/firmware.rom ]; then \
-	cp $(BASE_DIR)/build/qemu/firmware.rom $(BASE_DIR)/build/firmware.rom ; \
-fi)
-
-# VIRTIO not working yet in the uefi payload, please fix
+#
+# Firmware-open builds, guest and the host
+#
+# VIRTIO not working yet in the uefi payload guest use, please fix
+#
 ifeq ($(OPENFW),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
-# QEMU Q35 model has 16MB firmware limit max or it will overlap with the io-apic
+# QEMU Q35 model has 16MB firmware limit max (it will overlap with the io-apic otherwise)
 MACHINEOPTS := smm=on,max-fw-size=16M
 NVRAM := -drive if=pflash,format=raw,unit=0,file=$(BASE_DIR)/build/firmware.rom,readonly=off
 USBSTICK := -drive if=none,id=usbdrive,format=raw,file=$(BASE_DIR)/build/usbstick.img \
 	-device usb-storage,bus=ehci.0,drive=usbdrive
 
-run: $(BASE_DIR)/build/usbstick.img
+run: $(BASE_DIR)/build/usbstick.img $(BASE_DIR)/build/firmware.rom
 
+$(BASE_DIR)/build/firmware.rom:
+	@-cp $(BASE_DIR)/build/qemu/firmware.rom $(BASE_DIR)/build/firmware.rom
+
+$(BASE_DIR)/build/usbstick.img:
+	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
+	$(UEFI_BOOT_APP) $(KSMI_TEST_APP)
+
+#
+# OVMF builds, the guest and the host
+#
 else ifeq ($(OVMF),1)
 KERNEL :=
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost-efi.qcow2
-# VIRTIO not working yet in the uefi payload, please fix
 NVRAM := -drive if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE.fd,readonly=on \
 	-drive if=pflash,format=raw,unit=1,file=$(BASE_DIR)/build/OVMF_VARS.fd
 
 $(BASE_DIR)/build/OVMF_VARS.fd:
-	cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR)/build/OVMF_VARS.fd
+	@cp /usr/share/OVMF/OVMF_VARS.fd $(BASE_DIR)/build/OVMF_VARS.fd
 
 run: $(BASE_DIR)/build/OVMF_VARS.fd
+
+#
+# QEMU bootloader, only for kernel debugging
+#
 else
 IMAGE := $(BASE_DIR)/images/host/ubuntuhost.qcow2
 ifeq ($(BIOS),1)
@@ -102,10 +107,6 @@ ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
 endif
 
-$(BASE_DIR)/build/usbstick.img:
-	$(BASE_DIR)/scripts/mkusbstickimg.sh $(BASE_DIR)/build/usbstick.img 2048 \
-	$(UEFI_BOOT_APP) $(KSMI_TEST_APP)
-
 run:
 	@echo "------------------------------------------------------------------------------------------"
 ifeq ($(GRAPHICS),1)
@@ -121,7 +122,7 @@ endif
 clean:
 	@rm -rf $(BASE_DIR)/build/OVMF_VARS.fd
 	@rm -rf $(BASE_DIR)/build/usbstick.img
-	@rm -rf $(BASE_DIR)/build/qemu/firmware.rom
+	@-cp $(BASE_DIR)/build/qemu/firmware.rom $(BASE_DIR)/build/firmware.rom
 
 poorman:
 	@PROG=$(KERNEL) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \

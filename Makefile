@@ -40,12 +40,15 @@ clean-vars:
 shim:
 	@./scripts/build-shim.sh
 
+# Builds the firmware-open
 openfw:
 	@./scripts/build-of.sh
 
+# Cleans the uefi variable store(s)
 openfw-clean:
 	@./scripts/build-of.sh clean
 
+# Runs the build setup
 openfw-setup:
 	@./scripts/build-of.sh setup
 

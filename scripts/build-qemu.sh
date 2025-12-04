@@ -29,6 +29,7 @@ clean()
 {
 	cd build
 	make clean
+	make uninstall
 }
 
 if [ "x$1" = "xclean" ]; then

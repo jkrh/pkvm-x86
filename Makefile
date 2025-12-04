@@ -1,7 +1,7 @@
 include core/vars.mk
 include platform/$(PLATFORM)/vars.mk
 
-DIRS := kernel qemu
+DIRS := kernel guest-kernel qemu
 
 all: $(DIRS)
 
@@ -15,7 +15,7 @@ $(FETCH_SOURCES):
 $(TOOLDIR):
 	@mkdir -p $(TOOLDIR)
 
-$(BUILD_TOOLS): | $(TOOLDIR) $(FETCH_SOURCES) ; $(build-qemu)
+$(BUILD_TOOLS): | $(TOOLDIR) $(FETCH_SOURCES)
 
 tools: $(BUILD_TOOLS)
 
@@ -25,30 +25,37 @@ tools-clean:
 $(OBJDIR): | $(BUILD_TOOLS)
 	@mkdir -p $(OBJDIR)
 
+#
+# Attach to a debugger started by 'DEBUGGER=1 run' target. Symbols
+# to load can be specified via EDK2DEBUG=1 or SHIMDEBUG=1. Kernel
+# symbols are the default.
+#
 gdb:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) gdb
 
-run:
+run: $(HOST_QEMU)
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) run
 
 poorman:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
+# Cleans the emulation uefi variable store(s)
 clean-vars:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) clean
 
-shim:
+# Generates the shim and signing keys
+$(SHIM):
 	@./scripts/build-shim.sh
 
-# Builds the firmware-open
-openfw:
+# Builds the firmware-open at FWOPEN=<dir>
+openfw: $(SHIM)
 	@./scripts/build-of.sh
 
-# Cleans the uefi variable store(s)
+# Cleans the firmware-open build at FWOPEN=<dir>
 openfw-clean:
 	@./scripts/build-of.sh clean
 
-# Runs the build setup
+# Runs the firmware-open build setup at FWOPEN=<dir>
 openfw-setup:
 	@./scripts/build-of.sh setup
 
@@ -64,7 +71,9 @@ kernel-distclean:
 
 build-qemu = @./scripts/build-qemu.sh build
 
-qemu: ; $(build-qemu)
+$(HOST_QEMU): ; $(build-qemu)
+
+qemu: $(HOST_QEMU)
 
 qemu-clean:
 	@./scripts/build-qemu.sh clean
@@ -72,6 +81,7 @@ qemu-clean:
 qemu-distclean:
 	@./scripts/build-qemu.sh distclean
 
+# Isolated coreboot for testing - note that OVMF and OPENFW targets use their own
 coreboot: kernel
 	@IMAGE_SUFFIX=host COREBOOT_LINUX_CMDLINE="$(KERNEL_OPTS)" ./scripts/build-coreboot.sh \
 		scripts/q35_defconfig \
@@ -102,10 +112,11 @@ target-coreboot: guest-kernel
 guest-kernel:
 	@CC="$(CC)" ./scripts/build-guest-kernel.sh
 
-guestimage:
+# Generate an ubuntu test image(s). Set EFI=1 to make a full UEFI setup.
+guestimage: $(SHIM) guest-kernel
 	@./scripts/create-guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
 
-hostimage: $(BUILD_TOOLS)
+hostimage: $(BUILD_TOOLS) $(SHIM) kernel
 	@./scripts/create-hostimg.sh $(USER) $(GROUP)
 
 .PHONY: all clean tools tools-clean run gdb poorman kernel kernel-clean \

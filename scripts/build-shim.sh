@@ -31,8 +31,8 @@ if [ ! -e $KEYDIR/MOK-DB.esl ]; then
 	# Empty revocation list
 	cert-to-efi-sig-list -g $GUID /dev/null $KEYDIR/empty-dbx.esl
 
-	touch empty_file.bin
-	$PWD/scripts/create_auth_payload.py
+	touch $KEYDIR/empty_file.bin
+	$PWD/scripts/create_auth_payload.py $KEYDIR
 
 	#
 	# To use ^ for signing, first import to shim:

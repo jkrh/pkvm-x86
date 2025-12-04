@@ -5,6 +5,8 @@ Generates a correctly structured EFI_VARIABLE_AUTHENTICATION_2 payload
 for use with EDK2-based firmware.
 """
 
+import sys
+from pathlib import Path
 import struct
 from datetime import datetime
 from cryptography import x509
@@ -106,6 +108,7 @@ def create_auth_payload(
     print("Done.")
 
 if __name__ == "__main__":
+    keydata_dir = ""
     # --- Configuration Variables ---
     PRIV_KEY_FILE = 'MOK-PK.priv'
     CERT_FILE = 'MOK-PK.pem'
@@ -118,11 +121,18 @@ if __name__ == "__main__":
     ATTRIBUTES = 0x27 # NV + BS + RT + TIME_BASED_AUTH
     # -----------------------------
 
+    if len(sys.argv) > 1:
+        keydata_dir = Path(sys.argv[1])
+    else:
+        print("Usage: create_auth_payload.py <keydata folder>")
+        sys.exit(1)
+
+
     create_auth_payload(
-        PRIV_KEY_FILE,
-        CERT_FILE,
-        DATA_FILE,
-        OUTPUT_FILE,
+        keydata_dir / PRIV_KEY_FILE,
+        keydata_dir / CERT_FILE,
+        keydata_dir / DATA_FILE,
+        keydata_dir / OUTPUT_FILE,
         TIMESTAMP_STR,
         VARIABLE_NAME,
         VENDOR_GUID,

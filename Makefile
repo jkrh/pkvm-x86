@@ -43,12 +43,20 @@ poorman:
 clean-vars:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) clean
 
-# Generates the shim and signing keys
-$(SHIM):
+# All keydata for signing
+$(KEYDIR):
+	@./scripts/gen-keys.sh
+
+$(SHIM): $(KEYDIR)
 	@./scripts/build-shim.sh
 
+shim: $(SHIM)
+
+shim-clean:
+	@./scripts/build-shim.sh clean
+
 # Builds the firmware-open at FWOPEN=<dir>
-openfw: $(SHIM)
+openfw: shim
 	@./scripts/build-of.sh
 
 # Cleans the firmware-open build at FWOPEN=<dir>
@@ -120,7 +128,7 @@ hostimage: $(BUILD_TOOLS) $(SHIM) kernel
 	@./scripts/create-hostimg.sh $(USER) $(GROUP)
 
 .PHONY: all clean tools tools-clean run gdb poorman kernel kernel-clean \
-	kernel-distclean qemu qemu-clean qemu-distclean coreboot \
+	kernel-distclean qemu qemu-clean qemu-distclean coreboot shim shim-clean \
 	target-sysroot target-sysroot-distclean target-qemu target-qemu-clean \
 	target-qemu-distclean target-crovm target-coreboot guest-kernel \
 	guestimage hostimage $(DIRS)

@@ -22,6 +22,7 @@ export GROUP := $$(id -gn)
 export GUEST_KERNEL ?= $(BASE_DIR)/build/linux
 export SHIM := $(BASE_DIR)/build/shim/boot/efi/EFI/BOOT/BOOTX64.EFI
 export HOST_QEMU := $(BASE_DIR)/buildtools/usr/bin/qemu-system-x86_64
+export KEYDIR ?= $(BASE_DIR)/build/keydata
 
 export BUILD_SYSROOT_DIR=$(BASE_DIR)/ubuntu
 export UBUNTU_BASE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-amd64.tar.gz

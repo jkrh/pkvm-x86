@@ -41,6 +41,13 @@ if [ ! -e "$FWOPEN/edk2/MdeModulePkg/Universal/BdsDxe/Loadfile.h" ]; then
 	cp ../../uefi/UefiPayloadPkg/build.sh scripts/build.sh
 	cp ../../uefi/UefiPayloadPkg/* edk2/UefiPayloadPkg/
 fi
+
+if [ ! -e $FWOPEN/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/MOK-PK.der ]; then
+	cp $KEYDIR/*.der $FWOPEN/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/
+	cp $KEYDIR/*.esl $FWOPEN/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/
+	cp $KEYDIR/*.auth $FWOPEN/edk2/UefiPayloadPkg/SecureBootEnrollDefaultKeys/keys/
+fi
+
 . ~/.cargo/env
 BUILD_TYPE=$BUILD_TYPE ./scripts/build.sh $TARGET
 [ -e "${BASE_DIR}/build/firmware.rom" ] && rm ${BASE_DIR}/build/firmware.rom

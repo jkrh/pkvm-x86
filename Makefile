@@ -27,8 +27,8 @@ $(OBJDIR): | $(BUILD_TOOLS)
 
 #
 # Attach to a debugger started by 'DEBUGGER=1 run' target. Symbols
-# to load can be specified via EDK2DEBUG=1 or SHIMDEBUG=1. Kernel
-# symbols are the default.
+# to load can be specified via EDK2DEBUG=1, SHIMDEBUG=1 or CBDEBUG=1.
+# The kernel symbols are the default.
 #
 gdb:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) gdb

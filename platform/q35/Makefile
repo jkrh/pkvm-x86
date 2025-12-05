@@ -107,6 +107,12 @@ ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
 endif
 
+ifeq ($(FWOPEN),)
+CBDIR := $(BASE_DIR)/coreboot
+else
+CBDIR := $(FWOPEN)/coreboot
+endif
+
 run:
 	@echo "------------------------------------------------------------------------------------------"
 ifeq ($(GRAPHICS),1)
@@ -129,6 +135,12 @@ poorman:
 		$(BASE_DIR)/scripts/poorman.sh
 
 gdb:
+ifeq ($(CBDEBUG),1)
+	gdb -x $(BASE_DIR)/scripts/gdb-commands \
+		-ex "add-symbol-file $(CBDIR)/build/cbfs/fallback/bootblock.debug" \
+		-ex "add-symbol-file $(CBDIR)/build/cbfs/fallback/romstage.debug 0x02000000" \
+		-ex "add-symbol-file $(CBDIR)/build/cbfs/fallback/ramstage.debug 0x7fdac000"
+endif
 ifeq ($(EDK2DEBUG),1)
 	@env EDK2_SOURCE_ROOT_ENV=$(FWOPEN)/edk2 \
 	EDK2_PLATFORM_PACKAGE_NAME_ENV=UefiPayloadPkgX64 \

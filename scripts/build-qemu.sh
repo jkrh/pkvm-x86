@@ -6,7 +6,7 @@ build()
 {
 	mkdir -p build
 	cd build
-	../configure --prefix=$TOOLDIR/usr $DEBUG --target-list=x86_64-softmmu \
+	../configure --prefix=$TOOLDIR/usr $DEBUG --target-list=x86_64-softmmu,i386-softmmu \
 		--enable-modules \
 		--enable-spice \
 		--enable-opengl \

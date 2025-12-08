@@ -1,6 +1,11 @@
 include vars.mk
 
+ifeq ($(CBDEBUG),1)
+QEMU := $(TOOLDIR)/usr/bin/qemu-system-i386
+else
 QEMU := $(TOOLDIR)/usr/bin/qemu-system-x86_64
+endif
+
 VMLINUX := $(KERNEL_DIR)/vmlinux
 KERNEL := -kernel $(KERNEL_DIR)/arch/x86_64/boot/bzImage -append '$(KERNEL_OPTS)'
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
@@ -105,12 +110,6 @@ endif
 
 ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
-endif
-
-ifeq ($(FWOPEN),)
-CBDIR := $(BASE_DIR)/coreboot
-else
-CBDIR := $(FWOPEN)/coreboot
 endif
 
 run:

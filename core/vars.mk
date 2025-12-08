@@ -9,7 +9,13 @@ export CORE_DIR := $(BASE_DIR)/core
 export KERNEL_DIR := $(BASE_DIR)/linux
 export QEMUDIR := $(BASE_DIR)/qemu
 export TOOLDIR := $(BASE_DIR)/buildtools
+ifneq ($(FWOPEN),)
+export OPENFW := 1
+export CBDIR := $(FWOPEN)/coreboot
+else
 export FWOPEN ?= $(BASE_DIR)/uefi/firmware-open
+export CBDIR := $(BASE_DIR)/coreboot
+endif
 export BUILD_TYPE ?= DEBUG
 
 export PATH := $(TOOLDIR)/usr/bin:$(TOOLDIR)/bin:$(PATH)

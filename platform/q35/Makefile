@@ -1,11 +1,5 @@
 include vars.mk
 
-ifeq ($(CBDEBUG),1)
-QEMU := $(TOOLDIR)/usr/bin/qemu-system-i386
-else
-QEMU := $(TOOLDIR)/usr/bin/qemu-system-x86_64
-endif
-
 VMLINUX := $(KERNEL_DIR)/vmlinux
 KERNEL := -kernel $(KERNEL_DIR)/arch/x86_64/boot/bzImage -append '$(KERNEL_OPTS)'
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')

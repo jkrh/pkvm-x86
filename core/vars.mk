@@ -16,8 +16,14 @@ else
 export FWOPEN ?= $(BASE_DIR)/uefi/firmware-open
 export CBDIR := $(BASE_DIR)/coreboot
 endif
-export BUILD_TYPE ?= DEBUG
+# Use 64bit unless 32bit is explictly requested
+export QEMU := $(TOOLDIR)/usr/bin/qemu-system-x86_64
+ifeq ($(CBDEBUG),32)
+export QEMU := $(TOOLDIR)/usr/bin/qemu-system-i386
+export CBDEBUG := 1
+endif
 
+export BUILD_TYPE ?= DEBUG
 export PATH := $(TOOLDIR)/usr/bin:$(TOOLDIR)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(TOOLDIR)/usr/lib:$(TOOLDIR)/usr/local/lib:$(TOOLDIR)/usr/local/lib/x86_64-linux-gnu
 export NJOBS := $(shell exec nproc)

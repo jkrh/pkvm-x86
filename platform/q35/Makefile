@@ -93,6 +93,7 @@ endif
 ifeq ($(OPENFW),1)
 QEMUCMD := $(QEMU) $(QEMUOPTS) \
 	   -chardev stdio,id=debugcon,mux=on -device isa-debugcon,iobase=0x402,chardev=debugcon \
+	   -monitor telnet:127.0.0.1:4444,server,nowait \
 	   -serial file:$(BASE_DIR)/tty0.log -serial file:$(BASE_DIR)/tty1.log -serial file:$(BASE_DIR)/tty2.log
 endif
 

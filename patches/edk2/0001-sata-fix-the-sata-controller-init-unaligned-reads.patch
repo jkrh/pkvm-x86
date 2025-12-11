@@ -1,0 +1,31 @@
+From 8148bdafcfba448f6365275c42b4c7b4cb25a24f Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Thu, 11 Dec 2025 11:52:09 +0200
+Subject: [PATCH] sata: fix the sata controller init unaligned reads
+
+8 bit reads don't seem to always work - we need to read the entire
+properly aligned 32 bit register.
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ MdeModulePkg/Bus/Pci/SataControllerDxe/SataController.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/MdeModulePkg/Bus/Pci/SataControllerDxe/SataController.c b/MdeModulePkg/Bus/Pci/SataControllerDxe/SataController.c
+index ab06e2833c..3e66c22669 100644
+--- a/MdeModulePkg/Bus/Pci/SataControllerDxe/SataController.c
++++ b/MdeModulePkg/Bus/Pci/SataControllerDxe/SataController.c
+@@ -315,8 +315,8 @@ SataControllerSupported (
+   //
+   Status = PciIo->Pci.Read (
+                         PciIo,
+-                        EfiPciIoWidthUint8,
+-                        PCI_CLASSCODE_OFFSET,
++                        EfiPciIoWidthUint32,
++                        0,
+                         sizeof (PciData.Hdr.ClassCode),
+                         PciData.Hdr.ClassCode
+                         );
+-- 
+2.34.1
+

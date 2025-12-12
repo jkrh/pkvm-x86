@@ -1,41 +1,21 @@
-From f0a77d380abe1fdf116a0c11ee3682021f3c3ded Mon Sep 17 00:00:00 2001
+From 5eb921ce8ae364c2b91f051413f54d0b10a6c3b3 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
-Date: Wed, 30 Jul 2025 14:00:56 +0300
+Date: Fri, 12 Dec 2025 11:11:01 +0200
 Subject: [PATCH] Add support for pKVM
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-The patch adds support for pKVM. It sets appropriate VM type to the KVM
-and disables the fw_cfg DMA.
-
-By default, the images, ACPI tables and e820 are loaded to the RAM to
-speed up the boot process and workaround the limitations when
-bootloader does not support #VE handling. Therefore, the change ensues
-bootloader to either use the images from the defined locations or
-to support #VE with instruction decoding.
-
-The image loading and fw_cfg DMA have associated properties, which can
-be toggled from command line options.
-
 Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
 ---
- configs/devices/i386-softmmu/default.mak |   1 +
- hw/acpi/bios-linker-loader.c             |  78 ---
- hw/i386/Kconfig                          |   5 +
- hw/i386/acpi-build.c                     |   8 +
- hw/i386/fw_cfg.c                         |  11 +-
- hw/i386/fw_cfg.h                         |   4 +-
- hw/i386/pc.c                             |   8 +-
- hw/i386/pc_q35.c                         |   3 +
- hw/i386/x86-common.c                     |   8 +
- include/hw/acpi/bios-linker-loader.h     |  82 +++
- qapi/qom.json                            |  16 +
- qemu-options.hx                          |  10 +
- target/i386/meson.build                  |   2 +
- target/i386/pkvm.c                       | 726 +++++++++++++++++++++++
- target/i386/pkvm.h                       |  36 ++
- 15 files changed, 914 insertions(+), 84 deletions(-)
+ configs/devices/i386-softmmu/default.mak |  1 +
+ hw/i386/Kconfig                          |  5 ++
+ qapi/qom.json                            |  1 +
+ qemu-options.hx                          |  4 +
+ target/i386/meson.build                  |  2 +
+ target/i386/pkvm.c                       | 98 ++++++++++++++++++++++++
+ target/i386/pkvm.h                       | 22 ++++++
+ 7 files changed, 133 insertions(+)
  create mode 100644 target/i386/pkvm.c
  create mode 100644 target/i386/pkvm.h
 
@@ -51,95 +31,6 @@ index bc0479a7e0a3..680ce39a66c5 100644
  #CONFIG_PVPANIC=n
  #CONFIG_QXL=n
  #CONFIG_SEV=n
-diff --git a/hw/acpi/bios-linker-loader.c b/hw/acpi/bios-linker-loader.c
-index c9ffe449aac9..8986ff970004 100644
---- a/hw/acpi/bios-linker-loader.c
-+++ b/hw/acpi/bios-linker-loader.c
-@@ -29,84 +29,6 @@
-  * - link allocated chunks by storing pointer to one chunk into another
-  * - calculate ACPI checksum of part of the chunk and store into same chunk
-  */
--#define BIOS_LINKER_LOADER_FILESZ FW_CFG_MAX_FILE_PATH
--
--struct BiosLinkerLoaderEntry {
--    uint32_t command;
--    union {
--        /*
--         * COMMAND_ALLOCATE - allocate a table from @alloc.file
--         * subject to @alloc.align alignment (must be power of 2)
--         * and @alloc.zone (can be HIGH or FSEG) requirements.
--         *
--         * Must appear exactly once for each file, and before
--         * this file is referenced by any other command.
--         */
--        struct {
--            char file[BIOS_LINKER_LOADER_FILESZ];
--            uint32_t align;
--            uint8_t zone;
--        } alloc;
--
--        /*
--         * COMMAND_ADD_POINTER - patch the table (originating from
--         * @dest_file) at @pointer.offset, by adding a pointer to the table
--         * originating from @src_file. 1,2,4 or 8 byte unsigned
--         * addition is used depending on @pointer.size.
--         */
--        struct {
--            char dest_file[BIOS_LINKER_LOADER_FILESZ];
--            char src_file[BIOS_LINKER_LOADER_FILESZ];
--            uint32_t offset;
--            uint8_t size;
--        } pointer;
--
--        /*
--         * COMMAND_ADD_CHECKSUM - calculate checksum of the range specified by
--         * @cksum_start and @cksum_length fields,
--         * and then add the value at @cksum.offset.
--         * Checksum simply sums -X for each byte X in the range
--         * using 8-bit math.
--         */
--        struct {
--            char file[BIOS_LINKER_LOADER_FILESZ];
--            uint32_t offset;
--            uint32_t start;
--            uint32_t length;
--        } cksum;
--
--        /*
--         * COMMAND_WRITE_POINTER - write the fw_cfg file (originating from
--         * @dest_file) at @wr_pointer.offset, by adding a pointer to
--         * @src_offset within the table originating from @src_file.
--         * 1,2,4 or 8 byte unsigned addition is used depending on
--         * @wr_pointer.size.
--         */
--        struct {
--            char dest_file[BIOS_LINKER_LOADER_FILESZ];
--            char src_file[BIOS_LINKER_LOADER_FILESZ];
--            uint32_t dst_offset;
--            uint32_t src_offset;
--            uint8_t size;
--        } wr_pointer;
--
--        /* padding */
--        char pad[124];
--    };
--} QEMU_PACKED;
--typedef struct BiosLinkerLoaderEntry BiosLinkerLoaderEntry;
--
--enum {
--    BIOS_LINKER_LOADER_COMMAND_ALLOCATE          = 0x1,
--    BIOS_LINKER_LOADER_COMMAND_ADD_POINTER       = 0x2,
--    BIOS_LINKER_LOADER_COMMAND_ADD_CHECKSUM      = 0x3,
--    BIOS_LINKER_LOADER_COMMAND_WRITE_POINTER     = 0x4,
--};
--
--enum {
--    BIOS_LINKER_LOADER_ALLOC_ZONE_HIGH = 0x1,
--    BIOS_LINKER_LOADER_ALLOC_ZONE_FSEG = 0x2,
--};
- 
- /*
-  * BiosLinkerFileEntry:
 diff --git a/hw/i386/Kconfig b/hw/i386/Kconfig
 index 3a0e2b8ebbb6..60e94e5579c8 100644
 --- a/hw/i386/Kconfig
@@ -160,304 +51,11 @@ index 3a0e2b8ebbb6..60e94e5579c8 100644
 +config PKVM
 +    bool
 +    depends on KVM
-diff --git a/hw/i386/acpi-build.c b/hw/i386/acpi-build.c
-index 423c4959fe80..f8222d6218ca 100644
---- a/hw/i386/acpi-build.c
-+++ b/hw/i386/acpi-build.c
-@@ -80,6 +80,8 @@
- 
- #include CONFIG_DEVICES
- 
-+#include "pkvm.h"
-+
- /* These are used to size the ACPI tables for -M pc-i440fx-1.7 and
-  * -M pc-i440fx-2.0.  Even if the actual amount of AML generated grows
-  * a little bit, there should be plenty of free space since the DSDT
-@@ -2236,6 +2238,12 @@ void acpi_setup(void)
-                                              build_state, tables.rsdp,
-                                              ACPI_BUILD_RSDP_FILE);
- 
-+
-+    if (pkvm_load_acpi_tables(&tables)) {
-+        error_report("pkvm: error while loading ACPI tables");
-+        exit(1);
-+    }
-+
-     qemu_register_reset(acpi_build_reset, build_state);
-     acpi_build_reset(build_state);
-     vmstate_register(NULL, 0, &vmstate_acpi_build, build_state);
-diff --git a/hw/i386/fw_cfg.c b/hw/i386/fw_cfg.c
-index 5c0bcd5f8a9f..71e9acd89541 100644
---- a/hw/i386/fw_cfg.c
-+++ b/hw/i386/fw_cfg.c
-@@ -40,6 +40,7 @@ const char *fw_cfg_arch_key_name(uint16_t key)
-         {FW_CFG_SMBIOS_ENTRIES, "smbios_entries"},
-         {FW_CFG_IRQ0_OVERRIDE, "irq0_override"},
-         {FW_CFG_HPET, "hpet"},
-+        {FW_CFG_PKVM_IMAGES_ADDR, "pkvm_images_addr"},
-     };
- 
-     for (size_t i = 0; i < ARRAY_SIZE(fw_cfg_arch_wellknown_keys); i++) {
-@@ -117,8 +118,9 @@ void fw_cfg_build_smbios(PCMachineState *pcms, FWCfgState *fw_cfg,
- }
- 
- FWCfgState *fw_cfg_arch_create(MachineState *ms,
--                                      uint16_t boot_cpus,
--                                      uint16_t apic_id_limit)
-+                               uint16_t boot_cpus,
-+                               uint16_t apic_id_limit,
-+                               bool dma_enabled)
- {
-     FWCfgState *fw_cfg;
-     uint64_t *numa_fw_cfg;
-@@ -127,8 +129,9 @@ FWCfgState *fw_cfg_arch_create(MachineState *ms,
-     const CPUArchIdList *cpus = mc->possible_cpu_arch_ids(ms);
-     int nb_numa_nodes = ms->numa_state->num_nodes;
- 
--    fw_cfg = fw_cfg_init_io_dma(FW_CFG_IO_BASE, FW_CFG_IO_BASE + 4,
--                                &address_space_memory);
-+    AddressSpace *as = dma_enabled ? &address_space_memory : NULL;
-+
-+    fw_cfg = fw_cfg_init_io_dma(FW_CFG_IO_BASE, FW_CFG_IO_BASE + 4, as);
-     fw_cfg_add_i16(fw_cfg, FW_CFG_NB_CPUS, boot_cpus);
- 
-     /* FW_CFG_MAX_CPUS is a bit confusing/problematic on x86:
-diff --git a/hw/i386/fw_cfg.h b/hw/i386/fw_cfg.h
-index e560fd7be82b..7928bd982705 100644
---- a/hw/i386/fw_cfg.h
-+++ b/hw/i386/fw_cfg.h
-@@ -19,10 +19,12 @@
- #define FW_CFG_SMBIOS_ENTRIES   (FW_CFG_ARCH_LOCAL + 1)
- #define FW_CFG_IRQ0_OVERRIDE    (FW_CFG_ARCH_LOCAL + 2)
- #define FW_CFG_HPET             (FW_CFG_ARCH_LOCAL + 4)
-+#define FW_CFG_PKVM_IMAGES_ADDR (FW_CFG_ARCH_LOCAL + 5)
- 
- FWCfgState *fw_cfg_arch_create(MachineState *ms,
-                                uint16_t boot_cpus,
--                               uint16_t apic_id_limit);
-+                               uint16_t apic_id_limit,
-+                               bool dma_enabled);
- void fw_cfg_build_smbios(PCMachineState *pcms, FWCfgState *fw_cfg,
-                          SmbiosEntryPointType ep_type);
- void fw_cfg_build_feature_control(MachineState *ms, FWCfgState *fw_cfg);
-diff --git a/hw/i386/pc.c b/hw/i386/pc.c
-index 2f58e73d3347..6dcf8460c68d 100644
---- a/hw/i386/pc.c
-+++ b/hw/i386/pc.c
-@@ -65,6 +65,7 @@
- #include "e820_memory_layout.h"
- #include "trace.h"
- #include "sev.h"
-+#include "pkvm.h"
- #include CONFIG_DEVICES
- 
- #ifdef CONFIG_XEN_EMU
-@@ -630,6 +631,8 @@ void pc_machine_done(Notifier *notifier, void *data)
-         fw_cfg_modify_i16(x86ms->fw_cfg, FW_CFG_NB_CPUS, x86ms->boot_cpus);
-     }
- 
-+    pkvm_load_e820();
-+
-     pc_cmos_init_late(pcms);
- }
- 
-@@ -831,6 +834,7 @@ void pc_memory_init(PCMachineState *pcms,
-     MachineClass *mc = MACHINE_GET_CLASS(machine);
-     PCMachineClass *pcmc = PC_MACHINE_GET_CLASS(pcms);
-     X86MachineState *x86ms = X86_MACHINE(pcms);
-+    X86MachineClass *x86mc = X86_MACHINE_GET_CLASS(x86ms);
-     hwaddr maxphysaddr, maxusedaddr;
-     hwaddr cxl_base, cxl_resv_end = 0;
-     X86CPU *cpu = X86_CPU(first_cpu);
-@@ -971,7 +975,9 @@ void pc_memory_init(PCMachineState *pcms,
-     }
- 
-     fw_cfg = fw_cfg_arch_create(machine,
--                                x86ms->boot_cpus, x86ms->apic_id_limit);
-+                                x86ms->boot_cpus,
-+                                x86ms->apic_id_limit,
-+                                x86mc->fwcfg_dma_enabled);
- 
-     rom_set_fw(fw_cfg);
- 
-diff --git a/hw/i386/pc_q35.c b/hw/i386/pc_q35.c
-index b309b2b378db..697b15878896 100644
---- a/hw/i386/pc_q35.c
-+++ b/hw/i386/pc_q35.c
-@@ -62,6 +62,7 @@
- #include "hw/uefi/var-service-api.h"
- #include "hw/i386/acpi-build.h"
- #include "target/i386/cpu.h"
-+#include "pkvm.h"
- 
- /* ICH9 AHCI has 6 ports */
- #define MAX_SATA_PORTS     6
-@@ -338,6 +339,8 @@ static void pc_q35_init(MachineState *machine)
-         }
-     }
- #endif
-+
-+    pkvm_pc_init();
- }
- 
- #define DEFINE_Q35_MACHINE(major, minor) \
-diff --git a/hw/i386/x86-common.c b/hw/i386/x86-common.c
-index b1b5f11e7396..a42048bfaf0b 100644
---- a/hw/i386/x86-common.c
-+++ b/hw/i386/x86-common.c
-@@ -51,6 +51,8 @@
- #include "hw/i386/kvm/xen_evtchn.h"
- #endif
- 
-+#include "pkvm.h"
-+
- /* Physical Address of PVH entry point read from kernel ELF NOTE */
- static size_t pvh_start_addr;
- 
-@@ -888,6 +890,8 @@ void x86_load_linux(X86MachineState *x86ms,
-         sev_load_ctx.initrd_data = initrd_data;
-         sev_load_ctx.initrd_size = initrd_size;
- 
-+        pkvm_load_image("initrd", initrd_data, initrd_addr, initrd_size);
-+
-         stl_le_p(header + 0x218, initrd_addr);
-         stl_le_p(header + 0x21c, initrd_size);
-     }
-@@ -972,6 +976,10 @@ void x86_load_linux(X86MachineState *x86ms,
-     /* kernel without setup header patches */
-     fw_cfg_add_file(fw_cfg, "etc/boot/kernel", kernel, kernel_size);
- 
-+    pkvm_load_image("cmdline", kernel_cmdline, cmdline_addr, strlen(kernel_cmdline) + 1);
-+    pkvm_load_image("setup", setup, real_addr, setup_size);
-+    pkvm_load_image("kernel", kernel + setup_size, prot_addr, kernel_size - setup_size);
-+
-     if (machine->shim_filename) {
-         GMappedFile *mapped_file;
-         GError *gerr = NULL;
-diff --git a/include/hw/acpi/bios-linker-loader.h b/include/hw/acpi/bios-linker-loader.h
-index a711dbced85e..183a3ccb1203 100644
---- a/include/hw/acpi/bios-linker-loader.h
-+++ b/include/hw/acpi/bios-linker-loader.h
-@@ -1,6 +1,7 @@
- #ifndef BIOS_LINKER_LOADER_H
- #define BIOS_LINKER_LOADER_H
- 
-+#include "hw/nvram/fw_cfg.h"
- 
- typedef struct BIOSLinker {
-     GArray *cmd_blob;
-@@ -36,4 +37,85 @@ void bios_linker_loader_write_pointer(BIOSLinker *linker,
-                                       uint32_t src_offset);
- 
- void bios_linker_loader_cleanup(BIOSLinker *linker);
-+
-+#define BIOS_LINKER_LOADER_FILESZ FW_CFG_MAX_FILE_PATH
-+
-+struct BiosLinkerLoaderEntry {
-+    uint32_t command;
-+    union {
-+        /*
-+         * COMMAND_ALLOCATE - allocate a table from @alloc.file
-+         * subject to @alloc.align alignment (must be power of 2)
-+         * and @alloc.zone (can be HIGH or FSEG) requirements.
-+         *
-+         * Must appear exactly once for each file, and before
-+         * this file is referenced by any other command.
-+         */
-+        struct {
-+            char file[BIOS_LINKER_LOADER_FILESZ];
-+            uint32_t align;
-+            uint8_t zone;
-+        } alloc;
-+
-+        /*
-+         * COMMAND_ADD_POINTER - patch the table (originating from
-+         * @dest_file) at @pointer.offset, by adding a pointer to the table
-+         * originating from @src_file. 1,2,4 or 8 byte unsigned
-+         * addition is used depending on @pointer.size.
-+         */
-+        struct {
-+            char dest_file[BIOS_LINKER_LOADER_FILESZ];
-+            char src_file[BIOS_LINKER_LOADER_FILESZ];
-+            uint32_t offset;
-+            uint8_t size;
-+        } pointer;
-+
-+        /*
-+         * COMMAND_ADD_CHECKSUM - calculate checksum of the range specified by
-+         * @cksum_start and @cksum_length fields,
-+         * and then add the value at @cksum.offset.
-+         * Checksum simply sums -X for each byte X in the range
-+         * using 8-bit math.
-+         */
-+        struct {
-+            char file[BIOS_LINKER_LOADER_FILESZ];
-+            uint32_t offset;
-+            uint32_t start;
-+            uint32_t length;
-+        } cksum;
-+
-+        /*
-+         * COMMAND_WRITE_POINTER - write the fw_cfg file (originating from
-+         * @dest_file) at @wr_pointer.offset, by adding a pointer to
-+         * @src_offset within the table originating from @src_file.
-+         * 1,2,4 or 8 byte unsigned addition is used depending on
-+         * @wr_pointer.size.
-+         */
-+        struct {
-+            char dest_file[BIOS_LINKER_LOADER_FILESZ];
-+            char src_file[BIOS_LINKER_LOADER_FILESZ];
-+            uint32_t dst_offset;
-+            uint32_t src_offset;
-+            uint8_t size;
-+        } wr_pointer;
-+
-+        /* padding */
-+        char pad[124];
-+    };
-+} QEMU_PACKED;
-+typedef struct BiosLinkerLoaderEntry BiosLinkerLoaderEntry;
-+
-+enum {
-+    BIOS_LINKER_LOADER_COMMAND_ALLOCATE          = 0x1,
-+    BIOS_LINKER_LOADER_COMMAND_ADD_POINTER       = 0x2,
-+    BIOS_LINKER_LOADER_COMMAND_ADD_CHECKSUM      = 0x3,
-+    BIOS_LINKER_LOADER_COMMAND_WRITE_POINTER     = 0x4,
-+};
-+
-+enum {
-+    BIOS_LINKER_LOADER_ALLOC_ZONE_HIGH = 0x1,
-+    BIOS_LINKER_LOADER_ALLOC_ZONE_FSEG = 0x2,
-+};
-+
-+
- #endif
 diff --git a/qapi/qom.json b/qapi/qom.json
-index 830cb2ffe781..f810bd7dfccb 100644
+index 830cb2ffe781..405866a74913 100644
 --- a/qapi/qom.json
 +++ b/qapi/qom.json
-@@ -1148,6 +1148,20 @@
-             '*mrownerconfig': 'str',
-             '*quote-generation-socket': 'SocketAddress' } }
- 
-+##
-+# @PkvmGuestProperties:
-+#
-+# Properties for pkvm objects.
-+#
-+# @load-images: load images (kernel, commandline and initrd), ACPI tables and
-+#               e820 to RAM.
-+# @fwcfg-dma: control the availability of DMA in fwcfg transactions.
-+##
-+{ 'struct': 'PkvmGuestProperties',
-+  'data': {
-+            '*load-images': 'bool',
-+            '*fwcfg-dma': 'bool' } }
-+
- ##
- # @ThreadContextProperties:
- #
-@@ -1221,6 +1235,7 @@
+@@ -1221,6 +1221,7 @@
      { 'name': 'memory-backend-shm',
        'if': 'CONFIG_POSIX' },
      'pef-guest',
@@ -465,31 +63,17 @@ index 830cb2ffe781..f810bd7dfccb 100644
      { 'name': 'pr-manager-helper',
        'if': 'CONFIG_LINUX' },
      'qtest',
-@@ -1298,6 +1313,7 @@
-       'memory-backend-ram':         'MemoryBackendProperties',
-       'memory-backend-shm':         { 'type': 'MemoryBackendShmProperties',
-                                       'if': 'CONFIG_POSIX' },
-+      'pkvm-guest':                  'PkvmGuestProperties',
-       'pr-manager-helper':          { 'type': 'PrManagerHelperProperties',
-                                       'if': 'CONFIG_LINUX' },
-       'qtest':                      'QtestProperties',
 diff --git a/qemu-options.hx b/qemu-options.hx
-index ab23f14d2178..01c7f81b3bbd 100644
+index ab23f14d2178..f50563f74ef4 100644
 --- a/qemu-options.hx
 +++ b/qemu-options.hx
-@@ -6206,6 +6206,16 @@ SRST
+@@ -6206,6 +6206,10 @@ SRST
                   -machine ...,igvm-cfg=igvm0 \\
                   .....
  
-+    ``-object pkvm-guest,id=id[,load-images=on|off,fwcfg-dma=on|off]``
++    ``-object pkvm-guest,id=id``
 +        Create a pKVM guest object, which can be used to safeguard the guest
 +	from the host.
-+
-+        The ``load-images`` loads the given kernel/initrd/cmdline/setup to
-+	guest's RAM before the launch. The default is on.
-+
-+        The ``fwcfg-dma`` controls the availability of DMA in fw_cfg transfer.
-+	The default is off.
 +
      ``-object authz-simple,id=id,identity=string``
          Create an authorization object that will control access to
@@ -516,17 +100,14 @@ index 092af34e2d85..3958d218b63a 100644
  
 diff --git a/target/i386/pkvm.c b/target/i386/pkvm.c
 new file mode 100644
-index 000000000000..e249423bb6b4
+index 000000000000..303e25e411c5
 --- /dev/null
 +++ b/target/i386/pkvm.c
-@@ -0,0 +1,726 @@
+@@ -0,0 +1,98 @@
 +/*
 + * QEMU pKVM support
 + *
 + * Copyright (C) 2025 Technology Innovation Institute
-+ *
-+ * Author:
-+ *      Markku Ahvenjärvi <mankku@gmail.com>
 + *
 + * This work is licensed under the terms of the GNU GPL, version 2 or later.
 + * See the COPYING file in the top-level directory.
@@ -535,23 +116,13 @@ index 000000000000..e249423bb6b4
 +#include "qapi/error.h"
 +#include "qemu/error-report.h"
 +#include <linux/kvm.h>
-+#include <string.h>
-+#include "exec/hwaddr.h"
 +
-+#include "hw/nvram/fw_cfg.h"
-+#include "hw/loader.h"
 +#include "hw/i386/x86.h"
-+#include "hw/pci-host/q35.h"
-+#include "hw/southbridge/ich9.h"
-+#include "hw/i386/e820_memory_layout.h"
-+#include "qemu/range.h"
 +#include "qom/object_interfaces.h"
-+#include "system/address-spaces.h"
 +#include "system/system.h"
 +#include "confidential-guest.h"
 +
 +#include "pkvm.h"
-+#include "hw/i386/fw_cfg.h"
 +
 +#ifndef KVM_X86_PKVM_PROTECTED_VM
 +#define KVM_X86_PKVM_PROTECTED_VM    28
@@ -570,42 +141,11 @@ index 000000000000..e249423bb6b4
 + */
 +struct PKVMGuest {
 +    X86ConfidentialGuest parent_obj;
-+    /* Region to load e820 and ACPI tables */
-+    hwaddr images_addr;
 +};
 +
 +struct PKVMGuestClass {
 +    X86ConfidentialGuestClass parent_class;
-+    bool load_images;
-+    bool fwcfg_dma;
 +};
-+
-+#define PKVM_LOADADDR_FSEG(base) ((base) + 0x10000)
-+#define PKVM_LOADADDR_HIGH(base) (PKVM_LOADADDR_FSEG((base)) + 0x10000)
-+#define PKVM_IMAGES_REGION_SIZE (0x500000)
-+
-+/* Allocates descending */
-+#define PKVM_ACPI_ZONE_FSEG_BASE 0xFFF80
-+/* Allocates asceding */
-+#define PKVM_ACPI_ZONE_HIGH_BASE PKVM_LOADADDR_HIGH
-+#define PKVM_ACPI_TABLES_SIZE 0x20000
-+#define PKVM_ACPI_LOADER_FILESZ (BIOS_LINKER_LOADER_FILESZ)
-+
-+struct PKvmAcpiState {
-+    /* Names of the tables; indices used to refer other arrays */
-+    GArray *files;
-+    /* FSEG top */
-+    hwaddr fseg;
-+    /* HIGH top */
-+    hwaddr high;
-+    /* Input tables: the poiters are not owned. */
-+    GPtrArray *inp_tables;
-+    /* Tables that are written to the guest */
-+    GPtrArray *out_tables;
-+    /* Destination GPAs where the blobs are loaded to */
-+    GArray *gpas;
-+};
-+typedef struct PKvmAcpiState PKvmAcpiState;
 +
 +bool pkvm_enabled(void)
 +{
@@ -614,519 +154,12 @@ index 000000000000..e249423bb6b4
 +    return !!object_dynamic_cast(OBJECT(cgs), TYPE_PKVM_GUEST);
 +}
 +
-+static bool pkvm_should_load_images(void)
-+{
-+    PKVMGuest *pkvm;
-+
-+    if (!pkvm_enabled()) {
-+        return false;
-+    }
-+
-+    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
-+
-+    return PKVM_GUEST_GET_CLASS(pkvm)->load_images;
-+}
-+
-+static bool pkvm_init_images_region(void)
-+{
-+    MachineState *machine = MACHINE(qdev_get_machine());
-+    X86MachineState *x86ms = X86_MACHINE(machine);
-+    PKVMGuest *pkvm;
-+    const char *initrd_filename = machine->initrd_filename;
-+    uint32_t images_region_max = x86ms->below_4g_mem_size - 0x28000 - 1;
-+
-+    if (!pkvm_should_load_images()) {
-+        return false;
-+    }
-+
-+    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
-+
-+    /* The region location depends on whether initrd is supplied. */
-+    pkvm->images_addr = (images_region_max - PKVM_IMAGES_REGION_SIZE) & ~4095;
-+
-+    if (initrd_filename) {
-+        int64_t initrd_size = get_image_size(initrd_filename);
-+        if (initrd_size > 0) {
-+            pkvm->images_addr =
-+                (images_region_max - initrd_size - PKVM_IMAGES_REGION_SIZE) & ~4095;
-+        }
-+    }
-+
-+    return true;
-+}
-+
-+static hwaddr pkvm_images_region_base(void)
-+{
-+    PKVMGuest *pkvm;
-+
-+    assert(pkvm_should_load_images());
-+
-+    pkvm = PKVM_GUEST(MACHINE(qdev_get_machine())->cgs);
-+    if (!pkvm->images_addr) {
-+        pkvm_init_images_region();
-+    }
-+
-+    assert(pkvm->images_addr);
-+
-+    return pkvm->images_addr;
-+}
-+
-+static void pkvm_acpi_free_out_table(gpointer data) {
-+    g_array_free(data, true);
-+}
-+
-+static void pkvm_acpi_init(PKvmAcpiState *s, hwaddr fseg_base , hwaddr high_base)
-+{
-+    s->files = g_array_new(false, true, PKVM_ACPI_LOADER_FILESZ);
-+    s->fseg = fseg_base;
-+    s->high = high_base;
-+    s->inp_tables = g_ptr_array_new();
-+    s->out_tables = g_ptr_array_new_with_free_func(pkvm_acpi_free_out_table);
-+    s->gpas = g_array_new(false, true, sizeof(hwaddr));
-+}
-+
-+static void pkvm_acpi_destroy(PKvmAcpiState *s)
-+{
-+    g_array_free(s->files, true);
-+    g_ptr_array_free(s->inp_tables, true);
-+    g_ptr_array_free(s->out_tables, true);
-+    g_array_free(s->gpas, true);
-+}
-+
-+static int pkvm_acpi_add_file(PKvmAcpiState *s, const char *file) {
-+    if (!s || !file) {
-+        return -1;
-+    }
-+
-+    char new[PKVM_ACPI_LOADER_FILESZ] = {0};
-+    g_strlcpy(new, file, PKVM_ACPI_LOADER_FILESZ);
-+    s->files = g_array_append_vals(s->files, new, 1);
-+
-+    return 0;
-+}
-+
-+static int pkvm_acpi_find_file(PKvmAcpiState *s, const char *file)
-+{
-+    if (!s || !s->files || !file) {
-+        return -1;
-+    }
-+
-+    for (unsigned i = 0; i < s->files->len; i++) {
-+        char *cur = &s->files->data[PKVM_ACPI_LOADER_FILESZ * i];
-+
-+        if (strncmp(cur, file, PKVM_ACPI_LOADER_FILESZ) == 0) {
-+            return i;
-+        }
-+    }
-+
-+    return -1;
-+}
-+
-+static GArray *pkvm_acpi_input_table(PKvmAcpiState *s, const char *file) {
-+    if (!s || !s->inp_tables || !file) {
-+        return NULL;
-+    }
-+
-+    int index = pkvm_acpi_find_file(s, file);
-+    if (index >= s->inp_tables->len) {
-+        return NULL;
-+    }
-+
-+    return g_ptr_array_index(s->inp_tables, index);
-+}
-+
-+static GArray *pkvm_acpi_output_table(PKvmAcpiState *s, const char *file) {
-+    if (!s || !s->out_tables || !file) {
-+        return NULL;
-+    }
-+
-+    int index = pkvm_acpi_find_file(s, file);
-+    if (index >= s->out_tables->len) {
-+        return NULL;
-+    }
-+
-+    return g_ptr_array_index(s->out_tables, index);
-+}
-+
-+static uint64_t pkvm_acpi_gpa(PKvmAcpiState *s, const char *file) {
-+    if (!s || !s->out_tables || !file) {
-+        return 0;
-+    }
-+
-+    int index = pkvm_acpi_find_file(s, file);
-+    if (index >= s->gpas->len) {
-+        return 0;
-+    }
-+
-+    return g_array_index(s->gpas, hwaddr, index);
-+}
-+
-+static int pkvm_acpi_update_pointer(PKvmAcpiState *s,
-+                                    const char *dest,
-+                                    const char *src,
-+                                    uint32_t offset,
-+                                    uint8_t size)
-+{
-+    union {
-+        long long ll;
-+        char b[8];
-+    } data;
-+    GArray *blob = pkvm_acpi_output_table(s, dest);
-+    uint64_t src_gpa = cpu_to_le64(pkvm_acpi_gpa(s, src));
-+
-+    if (!blob || !src_gpa) {
-+        return -1;
-+    }
-+
-+    char *field = blob->data + offset;
-+
-+    data.ll = 0;
-+    memcpy(&data.b, field, size);
-+
-+    /* Add source the GPA to the offset on the table */
-+    data.ll += (uintptr_t) src_gpa;
-+
-+    memcpy(field, &data.b, size);
-+
-+    return 0;
-+}
-+
-+
-+static int pkvm_acpi_tables_init(PKvmAcpiState *s, AcpiBuildTables *tables, hwaddr fseg_base, hwaddr high_base)
-+{
-+    pkvm_acpi_init(s, fseg_base, high_base);
-+
-+    pkvm_acpi_add_file(s, ACPI_BUILD_TABLE_FILE);
-+    g_ptr_array_add(s->inp_tables, tables->table_data);
-+
-+    pkvm_acpi_add_file(s, ACPI_BUILD_RSDP_FILE);
-+    g_ptr_array_add(s->inp_tables, tables->rsdp);
-+
-+    return 0;
-+}
-+
-+static uint32_t pkvm_acpi_checksum(const uint8_t *data, int len)
-+{
-+    uint32_t sum = 0;
-+
-+    while (len-- > 0) {
-+        sum += *data++;
-+    }
-+
-+    return sum;
-+}
-+
-+static int pkvm_acpi_update_checksum(PKvmAcpiState *s, char *file,
-+                                     uint32_t offset, uint32_t start,
-+                                     uint32_t len)
-+{
-+    uint8_t *table;
-+    GArray *blob;
-+
-+    if (!s || !file) {
-+        return -1;
-+    }
-+
-+    blob = pkvm_acpi_output_table(s, file);
-+    if (!blob) {
-+        return -1;
-+    }
-+
-+    table = (uint8_t *) blob->data;
-+    table[offset] = 0;
-+    table[offset] = (0 - pkvm_acpi_checksum(&table[start], len)) & 0xFF;
-+
-+    return 0;
-+}
-+
-+static int pkvm_acpi_alloc_blob(PKvmAcpiState *s, char *file, uint32_t align, uint8_t zone)
-+{
-+    if (!s || !file) {
-+        return -1;
-+    }
-+
-+    int index = pkvm_acpi_find_file(s, file);
-+    if (index < 0) {
-+        return -1;
-+    }
-+
-+    GArray *input = pkvm_acpi_input_table(s, file);
-+    if (!input || pkvm_acpi_output_table(s, file) || pkvm_acpi_gpa(s, file)) {
-+        return -1;
-+    }
-+
-+
-+    /* Copy the blob */
-+    GArray *output = g_array_copy(input);
-+    if (!output) {
-+        return -1;
-+    }
-+
-+    /* Limit the table size */
-+    if (output->len > PKVM_ACPI_TABLES_SIZE) {
-+        g_array_set_size(output, PKVM_ACPI_TABLES_SIZE);
-+    }
-+
-+    if (index >= s->out_tables->len) {
-+        g_ptr_array_set_size(s->out_tables, index + 1);
-+    }
-+    g_ptr_array_index(s->out_tables, index) = output;
-+
-+    if (align < 16) {
-+        align = 16;
-+    }
-+
-+    if (index >= s->gpas->len) {
-+        g_array_set_size(s->gpas, index + 1);
-+    }
-+
-+    /* Set new new GPA address */
-+    if (zone == BIOS_LINKER_LOADER_ALLOC_ZONE_FSEG) {
-+        s->fseg = ROUND_DOWN(s->fseg - output->len, align);
-+        g_array_index(s->gpas, hwaddr, index) = s->fseg;
-+    } else {
-+        g_array_index(s->gpas, hwaddr, index) = s->high;
-+        s->high = ROUND_UP(s->high + output->len, align);
-+    }
-+
-+    return 0;
-+}
-+
-+static char *pkvm_acpi_file_name(PKvmAcpiState *s, int index)
-+{
-+    if (index >= s->files->len) {
-+        /* No such file */
-+        return NULL;
-+    }
-+
-+    return &s->files->data[PKVM_ACPI_LOADER_FILESZ * index];
-+}
-+
-+static int pkvm_acpi_add_blobs(PKvmAcpiState *s) {
-+    X86MachineState *x86ms = X86_MACHINE(qdev_get_machine());
-+    hwaddr images_base = pkvm_images_region_base();
-+    Range fseg = {
-+        .lob = 0xF0000,
-+        .upb = 0xFFFFF,
-+    };
-+
-+    for (unsigned i = 0; i < s->out_tables->len; i++) {
-+        GArray *blob = g_ptr_array_index(s->out_tables, i);
-+        hwaddr addr = g_array_index(s->gpas, hwaddr, i);
-+        char *name = pkvm_acpi_file_name(s, i);
-+
-+        if (!blob || !addr || !name) {
-+            /* No data for this one */
-+            continue;
-+        }
-+
-+        /* Generate a name */
-+        GString *tmp = g_string_new(name);
-+        g_string_append(tmp, "-pkvm");
-+
-+        /* The tables intended for F-segment are stored to the same offset,
-+         * but with different base. */
-+        hwaddr load_addr = range_contains(&fseg, addr) ?
-+            PKVM_LOADADDR_FSEG(images_base) + (PKVM_ACPI_ZONE_FSEG_BASE - addr) : addr;
-+
-+        rom_add_blob(tmp->str, blob->data, blob->len, blob->len, load_addr,
-+                     NULL, NULL, NULL, &address_space_memory, false);
-+
-+        g_string_free(tmp, true);
-+    }
-+
-+    fw_cfg_add_i32(x86ms->fw_cfg, FW_CFG_PKVM_IMAGES_ADDR, images_base);
-+
-+    return 0;
-+}
-+
-+static int pkvm_acpi_process_linker_entry(PKvmAcpiState *s, BiosLinkerLoaderEntry *entry)
-+{
-+    int ret = 1;
-+
-+    switch(entry->command) {
-+    case BIOS_LINKER_LOADER_COMMAND_ALLOCATE:
-+        if (pkvm_acpi_alloc_blob(s, entry->alloc.file, entry->alloc.align, entry->alloc.zone)) {
-+            warn_report("%s: failed to allocate acpi blob: %s", __func__, entry->alloc.file);
-+            ret = -1;
-+        }
-+        break;
-+    case BIOS_LINKER_LOADER_COMMAND_ADD_POINTER:
-+        if (pkvm_acpi_update_pointer(s,
-+                                     entry->pointer.dest_file,
-+                                     entry->pointer.src_file,
-+                                     entry->pointer.offset,
-+                                     entry->pointer.size)) {
-+            warn_report("%s: failed to update acpi pointer: %s -> %s",
-+                        __func__,
-+                        entry->pointer.src_file,
-+                        entry->pointer.dest_file);
-+            ret = -1;
-+        }
-+        break;
-+    case BIOS_LINKER_LOADER_COMMAND_ADD_CHECKSUM:
-+        pkvm_acpi_update_checksum(s,
-+                                  entry->cksum.file,
-+                                  entry->cksum.offset,
-+                                  entry->cksum.start,
-+                                  entry->cksum.length);
-+        break;
-+    case 0:
-+        /* Finished */
-+        ret = 0;
-+        break;
-+    case BIOS_LINKER_LOADER_COMMAND_WRITE_POINTER:
-+        /* Currently unsupported */
-+        error_report("%s: write pointer command is not supported", __func__);
-+        ret = -1;
-+        break;
-+    default:
-+        error_report("Unknown link-loader command: %d", entry->command);
-+        ret = -1;
-+        break;
-+    }
-+
-+    return ret;
-+}
-+
-+int pkvm_load_acpi_tables(AcpiBuildTables *tables)
-+{
-+    PKvmAcpiState s;
-+    int i;
-+    int ret = 1;
-+    hwaddr high_zone;
-+
-+    if (!pkvm_should_load_images()) {
-+        return 0;
-+    }
-+
-+    high_zone = PKVM_ACPI_ZONE_HIGH_BASE(pkvm_images_region_base());
-+
-+    if (pkvm_acpi_tables_init(&s, tables, PKVM_ACPI_ZONE_FSEG_BASE, high_zone)) {
-+        return -1;
-+    }
-+
-+    for (i = 0; i < tables->linker->cmd_blob->len; i += sizeof(BiosLinkerLoaderEntry)) {
-+        BiosLinkerLoaderEntry *e = (BiosLinkerLoaderEntry *)(tables->linker->cmd_blob->data + i);
-+        ret = pkvm_acpi_process_linker_entry(&s, e);
-+        if (ret <= 0) {
-+            /* Finished or error */
-+            break;
-+        }
-+    }
-+
-+    pkvm_acpi_add_blobs(&s);
-+
-+    pkvm_acpi_destroy(&s);
-+
-+    return ret;
-+}
-+
-+static int pkvm_q35_e820_pci(GArray *e820)
-+{
-+    Object *q35 = object_resolve_type_unambiguous(TYPE_Q35_HOST_DEVICE, NULL);
-+    if (!q35) {
-+        return 0;
-+    }
-+
-+    PCIDevice *dev = PCI_DEVICE(&Q35_HOST_DEVICE(q35)->mch);
-+    uint64_t pciexbar = pci_get_quad(dev->config + MCH_HOST_BRIDGE_PCIEXBAR);
-+    uint64_t length = 0;
-+    uint64_t addr_mask = MCH_HOST_BRIDGE_PCIEXBAR_ADMSK;
-+
-+    switch (pciexbar & MCH_HOST_BRIDGE_PCIEXBAR_LENGTH_MASK) {
-+    case MCH_HOST_BRIDGE_PCIEXBAR_LENGTH_256M:
-+        length = 256 * 1024 * 1024;
-+        break;
-+    case MCH_HOST_BRIDGE_PCIEXBAR_LENGTH_128M:
-+        length = 128 * 1024 * 1024;
-+        addr_mask |= MCH_HOST_BRIDGE_PCIEXBAR_128ADMSK |
-+            MCH_HOST_BRIDGE_PCIEXBAR_64ADMSK;
-+        break;
-+    case MCH_HOST_BRIDGE_PCIEXBAR_LENGTH_64M:
-+        length = 64 * 1024 * 1024;
-+        addr_mask |= MCH_HOST_BRIDGE_PCIEXBAR_64ADMSK;
-+        break;
-+    default:
-+        error_report("%s: invalid pci region length", __func__);
-+    }
-+
-+    g_array_append_vals(e820, &(struct e820_entry) {
-+                        .address = pciexbar & addr_mask,
-+                        .length = length,
-+                        .type = E820_RESERVED
-+                        },
-+                        sizeof(struct e820_entry));
-+
-+    return 0;
-+}
-+
-+int pkvm_load_e820(void)
-+{
-+    GArray *blob;
-+    struct e820_entry *table;
-+    uint32_t n_entries;
-+
-+    if (!pkvm_should_load_images()) {
-+        return 0;
-+    }
-+
-+    hwaddr e820_base = pkvm_images_region_base();
-+    struct e820_entry entries[5] = {
-+        { .address = 0, .length = 639 * 1024, .type = E820_RAM },
-+        { .address = 639 * 1024, .length = 1024, .type = E820_RESERVED },
-+        { .address = 0xD0000, .length = 128 * 1024, .type = E820_NVS },
-+        { .address = 0xF0000, .length = 64 * 1024, .type = E820_RESERVED },
-+        /* Reserved for the bootloader structures */
-+        { .address = e820_base, .length = PKVM_IMAGES_REGION_SIZE, .type = E820_RESERVED },
-+    };
-+
-+    blob = g_array_new(false, true, 1);
-+    g_array_append_vals(blob, entries, 5 * sizeof(struct e820_entry));
-+
-+    /* Handle entry for PCI */
-+    pkvm_q35_e820_pci(blob);
-+
-+    n_entries = e820_get_table(&table);
-+    g_array_append_vals(blob, table, n_entries * sizeof(struct e820_entry));
-+
-+    n_entries = blob->len / sizeof(struct e820_entry);
-+    g_array_insert_vals(blob, 0, &n_entries, sizeof(n_entries));
-+
-+    rom_add_blob("etc/e820-pkvm", blob->data, blob->len, blob->len, e820_base,
-+                 NULL, NULL, NULL, &address_space_memory, false);
-+
-+    g_array_free(blob, true);
-+
-+    return 0;
-+}
-+
-+void pkvm_load_image(const char *name, const void *data, hwaddr addr, size_t size)
-+{
-+    if (pkvm_should_load_images()) {
-+        rom_add_blob(name, data, size, size, addr, NULL, NULL, NULL,
-+                     &address_space_memory, false);
-+    }
-+}
-+
 +static int pkvm_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 +{
-+    MachineClass *mc = MACHINE_GET_CLASS(qdev_get_machine());
-+    X86MachineClass *x86mc = X86_MACHINE_CLASS(mc);
-+    PKVMGuest *pkvm = (PKVMGuest *) object_dynamic_cast(OBJECT(cgs),
-+                                                        TYPE_PKVM_GUEST);
-+
-+    if (!pkvm) {
-+        return 0;
-+    }
-+
 +    if (!should_mlock(mlock_state)) {
 +        error_setg(errp, "pKVM requires '-overcommit mem-lock=on'");
 +        return -1;
 +    }
-+
-+    x86mc->fwcfg_dma_enabled = PKVM_GUEST_GET_CLASS(pkvm)->fwcfg_dma;
-+    pkvm->images_addr = 0;
 +
 +    cgs->ready = true;
 +
@@ -1138,88 +171,12 @@ index 000000000000..e249423bb6b4
 +    return KVM_X86_PKVM_PROTECTED_VM;
 +}
 +
-+static bool pkvm_get_load_images(Object *obj, Error **errp)
-+{
-+    return PKVM_GUEST_GET_CLASS(obj)->load_images;
-+}
-+
-+static void pkvm_set_load_images(Object *obj, bool value, Error **errp)
-+{
-+    PKVM_GUEST_GET_CLASS(obj)->load_images = value;
-+}
-+
-+static bool pkvm_get_fwcfg_dma(Object *obj, Error **errp)
-+{
-+    return PKVM_GUEST_GET_CLASS(obj)->fwcfg_dma;
-+}
-+
-+static void pkvm_set_fwcfg_dma(Object *obj, bool value, Error **errp)
-+{
-+    PKVM_GUEST_GET_CLASS(obj)->fwcfg_dma = value;
-+}
-+
-+static void pkvm_init_lpc(void)
-+{
-+    Object *lpc = object_resolve_type_unambiguous(TYPE_ICH9_LPC_DEVICE, NULL);
-+
-+    if (lpc) {
-+        PCIDevice *dev = PCI_DEVICE(lpc);
-+        pci_host_config_write_common(dev, ICH9_LPC_PMBASE,
-+                                     pci_config_size(dev),
-+                                     0x601, 4);
-+        pci_host_config_write_common(dev, ICH9_LPC_ACPI_CTRL,
-+                                     pci_config_size(dev),
-+                                     0x80, 1);
-+    }
-+}
-+
-+static void pkvm_init_mch(void)
-+{
-+    Object *q35 = object_resolve_type_unambiguous(TYPE_Q35_HOST_DEVICE, NULL);
-+    if (q35) {
-+        PCIDevice *dev = PCI_DEVICE(&Q35_HOST_DEVICE(q35)->mch);
-+
-+        pci_set_quad(dev->config + MCH_HOST_BRIDGE_PCIEXBAR,
-+                     (MCH_HOST_BRIDGE_PCIEXBAR_DEFAULT |
-+                      MCH_HOST_BRIDGE_PCIEXBAREN));
-+    }
-+}
-+
-+void pkvm_pc_init(void)
-+{
-+    Object *q35 = object_resolve_type_unambiguous(TYPE_Q35_HOST_DEVICE, NULL);
-+
-+    if (q35 && pkvm_should_load_images()) {
-+        /* To generate a valid ACPI, the host bridge must be enabled */
-+        pkvm_init_mch();
-+        /* To pre-generate ACPI, PM registers must be initialized in for
-+         * valid FADT */
-+        pkvm_init_lpc();
-+    }
-+}
-+
 +static void pkvm_guest_class_init(ObjectClass *oc, const void *data)
 +{
 +    ConfidentialGuestSupportClass *klass = CONFIDENTIAL_GUEST_SUPPORT_CLASS(oc);
 +    X86ConfidentialGuestClass *x86_klass = X86_CONFIDENTIAL_GUEST_CLASS(oc);
 +
 +    klass->kvm_init = pkvm_kvm_init;
-+
-+    PKVM_GUEST_CLASS(oc)->load_images = true;
-+    PKVM_GUEST_CLASS(oc)->fwcfg_dma = false;
-+
-+    object_class_property_add_bool(oc, "load-images",
-+                                   pkvm_get_load_images,
-+                                   pkvm_set_load_images);
-+    object_class_property_set_description(oc, "load-images",
-+            "load images, ACPI tables and e820 to RAM");
-+
-+    object_class_property_add_bool(oc, "fwcfg-dma",
-+                                   pkvm_get_fwcfg_dma,
-+                                   pkvm_set_fwcfg_dma);
-+    object_class_property_set_description(oc, "fwcfg-dma",
-+            "use DMA in fwcfg transfers");
-+
 +    x86_klass->kvm_type = pkvm_kvm_type;
 +}
 +
@@ -1239,7 +196,6 @@ index 000000000000..e249423bb6b4
 +    }
 +};
 +
-+
 +static void
 +pkvm_register_types(void)
 +{
@@ -1248,17 +204,14 @@ index 000000000000..e249423bb6b4
 +type_init(pkvm_register_types);
 diff --git a/target/i386/pkvm.h b/target/i386/pkvm.h
 new file mode 100644
-index 000000000000..8d4584f207f9
+index 000000000000..431ec3c63278
 --- /dev/null
 +++ b/target/i386/pkvm.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,22 @@
 +/*
 + * QEMU pKVM support
 + *
 + * Copyright (C) 2025 Technology Innovation Institute
-+ *
-+ * Author:
-+ *      Markku Ahvenjärvi <mankku@gmail.com>
 + *
 + * This work is licensed under the terms of the GNU GPL, version 2 or later.
 + * See the COPYING file in the top-level directory.
@@ -1266,26 +219,15 @@ index 000000000000..8d4584f207f9
 +#ifndef I386_PKVM_H
 +#define I386_PKVM_H
 +
-+#include "hw/acpi/aml-build.h"
-+
 +#ifndef CONFIG_USER_ONLY
 +#include CONFIG_DEVICES /* CONFIG_PKVM */
 +#endif
 +
 +#if !defined(CONFIG_PKVM) || defined(CONFIG_USER_ONLY)
 +#define pkvm_enabled() 0
-+static inline int pkvm_load_acpi_tables(AcpiBuildTables *tables) { return 0; }
-+static inline int pkvm_load_e820(void) { return 0; }
-+static inline void pkvm_load_image(const char *name, const void *data, hwaddr addr, size_t size) {}
-+static inline void pkvm_pc_init(void) {}
 +#else
 +bool pkvm_enabled(void);
-+int pkvm_load_acpi_tables(AcpiBuildTables *tables);
-+int pkvm_load_e820(void);
-+void pkvm_load_image(const char *name, const void *data, hwaddr addr, size_t size);
-+void pkvm_pc_init(void);
 +#endif
-+
 +
 +#endif
 -- 

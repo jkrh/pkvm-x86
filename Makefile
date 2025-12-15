@@ -122,10 +122,10 @@ guest-kernel:
 
 # Generate an ubuntu test image(s). Set EFI=1 to make a full UEFI setup.
 guestimage: $(SHIM) guest-kernel
-	@./scripts/create-guestimg.sh $(USER) $(GROUP) -k $(GUEST_KERNEL)
+	@./scripts/create-guestimg.sh "$(USER)" "$(GROUP)" -k $(GUEST_KERNEL)
 
 hostimage: $(BUILD_TOOLS) $(SHIM) kernel
-	@./scripts/create-hostimg.sh $(USER) $(GROUP)
+	@./scripts/create-hostimg.sh "$(USER)" "$(GROUP)"
 
 .PHONY: all clean tools tools-clean run gdb poorman kernel kernel-clean \
 	kernel-distclean qemu qemu-clean qemu-distclean coreboot shim shim-clean \

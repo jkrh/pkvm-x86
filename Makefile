@@ -36,6 +36,9 @@ gdb:
 run: $(HOST_QEMU)
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) run
 
+clean-usb:
+	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) clean-usb
+
 poorman:
 	$(MAKE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) poorman
 
@@ -131,4 +134,4 @@ hostimage: $(BUILD_TOOLS) $(SHIM) kernel
 	kernel-distclean qemu qemu-clean qemu-distclean coreboot shim shim-clean \
 	target-sysroot target-sysroot-distclean target-qemu target-qemu-clean \
 	target-qemu-distclean target-crovm target-coreboot guest-kernel \
-	guestimage hostimage $(DIRS)
+	guestimage hostimage clean-usb $(DIRS)

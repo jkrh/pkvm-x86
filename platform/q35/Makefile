@@ -119,9 +119,11 @@ endif
 	-$(QEMUCMD)
 	@cp -rf $(BASE_DIR)/tty2.log $(BASE_DIR)/debug.log
 
-clean:
-	@rm -rf $(BASE_DIR)/build/OVMF_VARS.fd
+clean-usb:
 	@rm -rf $(BASE_DIR)/build/usbstick.img
+
+clean: clean-usb
+	@rm -rf $(BASE_DIR)/build/OVMF_VARS.fd
 	@-cp $(BASE_DIR)/build/qemu/firmware.rom $(BASE_DIR)/build/firmware.rom
 
 poorman:
@@ -153,4 +155,4 @@ endif
 endif
 endif
 
-.PHONY := gdb clean run poorman
+.PHONY := gdb clean run poorman clean-usb

@@ -188,9 +188,9 @@ CPU="--accel kvm,kernel-irqchip=split -cpu host,$CPUFLAGS -smp 2"
 DRIVE="-drive file=$IMAGE,if=virtio,format=qcow2"
 KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr earlyprintk=serial console=uart[8250],io,0x3f8 ignore_loglevel swiotlb=force"
 #DEBUGOPTS="$DEBUGOPTS --trace kvm_run_exit -D qemudebug.log"
-QEMUOPTS="${CPU} ${SMP} ${MACHINE} -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L ."
+QEMUOPTS="${CPU} ${SMP} ${MACHINE} -overcommit mem-lock=on -m ${MEM} ${CONSOLE} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L ."
 if [ "$BIOS" = "1" ]; then
-QEMUOPTS="-bios coreboot-guest.rom -overcommit mem-lock=on $QEMUOPTS"
+QEMUOPTS="-bios coreboot-guest.rom $QEMUOPTS"
 fi
 
 #[ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice"

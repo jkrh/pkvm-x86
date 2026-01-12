@@ -69,6 +69,7 @@ NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=1
 SPICESOCK := /tmp/host
 VDAGENT := -device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent
 SPICEOPTS := unix=on,addr=$(SPICESOCK),disable-ticketing=on,image-compression=off,streaming-video=all,playback-compression=off,disable-agent-file-xfer=off
+DEBUGOPTS := -monitor telnet:127.0.0.1:4444,server,nowait
 
 ifeq ($(DEBUGMMU),1)
 QEMUDEBUGOPTS := guest_errors,unimp,mmu
@@ -93,7 +94,6 @@ endif
 ifeq ($(OPENFW),1)
 QEMUCMD := $(QEMU) $(QEMUOPTS) \
 	   -chardev stdio,id=debugcon,mux=on -device isa-debugcon,iobase=0x402,chardev=debugcon \
-	   -monitor telnet:127.0.0.1:4444,server,nowait \
 	   -serial file:$(BASE_DIR)/tty0.log -serial file:$(BASE_DIR)/tty1.log -serial file:$(BASE_DIR)/tty2.log
 endif
 

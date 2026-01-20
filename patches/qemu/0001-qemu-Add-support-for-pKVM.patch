@@ -1,4 +1,4 @@
-From 5eb921ce8ae364c2b91f051413f54d0b10a6c3b3 Mon Sep 17 00:00:00 2001
+From 068e50804684b69cc762ee72b220130458578e38 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
 Date: Fri, 12 Dec 2025 11:11:01 +0200
 Subject: [PATCH] Add support for pKVM
@@ -20,7 +20,7 @@ Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
  create mode 100644 target/i386/pkvm.h
 
 diff --git a/configs/devices/i386-softmmu/default.mak b/configs/devices/i386-softmmu/default.mak
-index bc0479a7e0a3..680ce39a66c5 100644
+index bc0479a7e0..680ce39a66 100644
 --- a/configs/devices/i386-softmmu/default.mak
 +++ b/configs/devices/i386-softmmu/default.mak
 @@ -14,6 +14,7 @@
@@ -32,7 +32,7 @@ index bc0479a7e0a3..680ce39a66c5 100644
  #CONFIG_QXL=n
  #CONFIG_SEV=n
 diff --git a/hw/i386/Kconfig b/hw/i386/Kconfig
-index 3a0e2b8ebbb6..60e94e5579c8 100644
+index 6a0ab54bea..d165ef4133 100644
 --- a/hw/i386/Kconfig
 +++ b/hw/i386/Kconfig
 @@ -30,6 +30,7 @@ config PC
@@ -43,7 +43,7 @@ index 3a0e2b8ebbb6..60e94e5579c8 100644
      imply SGX
      imply TDX
      imply TEST_DEVICES
-@@ -170,3 +171,7 @@ config XEN_EMU
+@@ -167,3 +168,7 @@ config XEN_EMU
      bool
      default y
      depends on KVM && I386
@@ -52,10 +52,10 @@ index 3a0e2b8ebbb6..60e94e5579c8 100644
 +    bool
 +    depends on KVM
 diff --git a/qapi/qom.json b/qapi/qom.json
-index 830cb2ffe781..405866a74913 100644
+index 6f5c9de0f0..e05a3fefe5 100644
 --- a/qapi/qom.json
 +++ b/qapi/qom.json
-@@ -1221,6 +1221,7 @@
+@@ -1218,6 +1218,7 @@
      { 'name': 'memory-backend-shm',
        'if': 'CONFIG_POSIX' },
      'pef-guest',
@@ -64,10 +64,10 @@ index 830cb2ffe781..405866a74913 100644
        'if': 'CONFIG_LINUX' },
      'qtest',
 diff --git a/qemu-options.hx b/qemu-options.hx
-index ab23f14d2178..f50563f74ef4 100644
+index fca2b7bc74..26a121535d 100644
 --- a/qemu-options.hx
 +++ b/qemu-options.hx
-@@ -6206,6 +6206,10 @@ SRST
+@@ -6245,6 +6245,10 @@ SRST
                   -machine ...,igvm-cfg=igvm0 \\
                   .....
  
@@ -79,7 +79,7 @@ index ab23f14d2178..f50563f74ef4 100644
          Create an authorization object that will control access to
          network services.
 diff --git a/target/i386/meson.build b/target/i386/meson.build
-index 092af34e2d85..3958d218b63a 100644
+index d385eafdf7..5f8d33bf64 100644
 --- a/target/i386/meson.build
 +++ b/target/i386/meson.build
 @@ -7,6 +7,7 @@ i386_ss.add(files(
@@ -90,17 +90,17 @@ index 092af34e2d85..3958d218b63a 100644
  
  # x86 cpu type
  i386_ss.add(when: 'CONFIG_KVM', if_true: files('host-cpu.c'))
-@@ -25,6 +26,7 @@ i386_system_ss.add(files(
- ))
- i386_system_ss.add(when: 'CONFIG_SEV', if_true: files('sev.c'),
-                                        if_false: files('sev-system-stub.c'))
+@@ -29,6 +30,7 @@ i386_system_ss.add(when: 'CONFIG_SEV', if_true: files('sev.c'),
+ if igvm.found()
+   i386_system_ss.add(files('igvm.c'))
+ endif
 +i386_system_ss.add(when: 'CONFIG_PKVM', if_true: files('pkvm.c'))
  
  i386_user_ss = ss.source_set()
  
 diff --git a/target/i386/pkvm.c b/target/i386/pkvm.c
 new file mode 100644
-index 000000000000..303e25e411c5
+index 0000000000..303e25e411
 --- /dev/null
 +++ b/target/i386/pkvm.c
 @@ -0,0 +1,98 @@
@@ -204,7 +204,7 @@ index 000000000000..303e25e411c5
 +type_init(pkvm_register_types);
 diff --git a/target/i386/pkvm.h b/target/i386/pkvm.h
 new file mode 100644
-index 000000000000..431ec3c63278
+index 0000000000..431ec3c632
 --- /dev/null
 +++ b/target/i386/pkvm.h
 @@ -0,0 +1,22 @@

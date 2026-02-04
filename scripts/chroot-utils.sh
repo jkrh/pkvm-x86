@@ -277,7 +277,11 @@ sysroot_create_image_file() {
 		sync
 		sleep 2
 		mformat_partition /dev/nbd0 1
-		mkfs.ext4 /dev/nbd0p2
+		if [ -n "$BLOCK_SIZE" ]; then
+			mkfs.ext4 -b "$BLOCK_SIZE" /dev/nbd0p2
+		else
+			mkfs.ext4 /dev/nbd0p2
+		fi
 		sync
 		mount /dev/nbd0p2 '$tmp_image_dir'
 		sleep 2

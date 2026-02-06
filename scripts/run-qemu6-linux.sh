@@ -181,7 +181,7 @@ SCREEN="-nographic"
 # Machine settings
 #
 [ -z "$MEM" ] && MEM=4096
-MACHINE="-machine q35"
+MACHINE="-machine q35,kernel-irqchip=split,confidential-guest-support=pkvm0 -object pkvm-guest,id=pkvm0"
 CPUFLAGS="+kvm-pv-enforce-cpuid,-vmx,-waitpkg,+ssse3,+tsc,+nx,-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi"
 CPU="--accel kvm,kernel-irqchip=split -cpu host,$CPUFLAGS -smp 2"
 

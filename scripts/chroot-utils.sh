@@ -18,9 +18,17 @@ fi
 [ -z "$PRIVATEKEY" ] && PRIVATEKEY="$PWD/build/keydata/MOK-DB.priv"
 [ -z "$PUBLICKEY" ] && PUBLICKEY="$PWD/build/keydata/MOK-DB.pem"
 
-# usage: sysroot_error MESSAGE
+# usage: sysroot_error MESSAGE [WITH_NEWLINE]
+# WITH_NEWLINE: 1 (default) prints with trailing newline, 0 prints without trailing newline
 sysroot_error() {
-	>&2 printf "error: %b" "$1"
+	local message=$1
+	local with_newline=${2:-1}
+
+	if [ "$with_newline" = "0" ]; then
+		>&2 printf "error: %b" "$message"
+	else
+		>&2 printf "error: %b\n" "$message"
+	fi
 }
 
 # usage: sysroot_exit_error RC MESSAGE

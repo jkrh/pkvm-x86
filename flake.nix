@@ -10,10 +10,23 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
+
+      mkKernel = import ./nix/kernel-package.nix;
     in
     {
-      # Dummy default target
-      packages.${system}.default = pkgs.emptyDirectory;
+      packages.${system} = {
+        linux-pkvm-host = mkKernel {
+          inherit pkgs;
+          isGuest = false;
+        };
+
+        linux-pkvm-guest = mkKernel {
+          inherit pkgs;
+          isGuest = true;
+        };
+
+        default = self.packages.${system}.linux-pkvm-host;
+      };
 
       devShells.${system}.default = import ./shell.nix { inherit pkgs; };
     };

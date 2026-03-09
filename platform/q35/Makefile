@@ -59,10 +59,10 @@ endif
 endif
 
 DRIVE := -device nvme,serial=a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6,drive=disk0 -drive file=$(IMAGE),if=none,id=disk0,format=qcow2
-MACHINE := -machine q35,mem-merge=off,$(MACHINEOPTS) -device intel-iommu,aw-bits=48,device-iotlb=on
+MACHINE := -machine q35,mem-merge=off,$(MACHINEOPTS) -device intel-iommu,aw-bits=48,device-iotlb=on,intremap=on
 CPUFLAGS := +kvm-pv-enforce-cpuid,+vmx,+waitpkg,+ssse3,+tsc,+nx,+x2apic,+hypervisor,$\
 	-kvm-pv-ipi,-kvm-pv-tlb-flush,-kvm-pv-unhalt,-kvm-pv-sched-yield,-kvm-asyncpf-int,-kvm-pv-eoi
-CPU := --accel kvm,kernel-irqchip=on -cpu host,$(CPUFLAGS) -smp 4 -overcommit cpu-pm=off
+CPU := --accel kvm,kernel-irqchip=split -cpu host,$(CPUFLAGS) -smp 4 -overcommit cpu-pm=off
 USB := -device ich9-usb-ehci1,id=ehci -device usb-kbd $(USBSTICK)
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 

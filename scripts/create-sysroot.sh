@@ -38,18 +38,24 @@ if [ ! -d "$BUILD_SYSROOT_DIR" ]; then
 	mkdir -p "${BUILD_SYSROOT_DIR}/crosvm"
 	sysroot_create "$BASE_DIR" "$BUILD_SYSROOT_DIR" "$UBUNTU_BASE" "$PKGLIST"
 
-	# RO mount crosvm and install dev deps
-	sudo mount --bind -o ro "${BASE_DIR}/crosvm" "${BUILD_SYSROOT_DIR}/crosvm"
-
-	# the toolchain installation needs running through some hoops...
+	# Rust toolchain installation needs running through some hoops...
 	sysroot_run_commands "$BUILD_SYSROOT_DIR" \
-		"set -e; \
-		ln -sf /crosvm/rust-toolchain rust-toolchain; \
-		ln -fs /usr/share/zoneinfo/Europe/Helsinki /etc/localtime;
-		/crosvm/tools/setup; \
-		rm rust-toolchain;
-		echo '. \${CARGO_HOME:-~/.cargo}/env' >> /root/.profile"
+		"set -e;
+		export RUSTUP_HOME=/usr/local/rustup;
+		export CARGO_HOME=/usr/local/cargo;
+		export PATH=/usr/local/cargo/bin:\$PATH;
+		ln -sf /usr/share/zoneinfo/Europe/Helsinki /etc/localtime;
+		curl -LO 'https://static.rust-lang.org/rustup/archive/1.25.1/x86_64-unknown-linux-gnu/rustup-init';
+		echo '5cc9ffd1026e82e7fb2eec2121ad71f4b0f044e88bca39207b3f6b769aaa799c *rustup-init' | sha256sum -c -;
+		chmod +x rustup-init;
+		./rustup-init -y --no-modify-path --profile minimal --default-toolchain none;
+		chmod -R a+w \$RUSTUP_HOME \$CARGO_HOME;
+		rustup --version;
+		rustup default stable;
+		cargo --version;
+		rustc --version;
+		rm rustup-init;
+		echo \". \${CARGO_HOME}/env\" >> /root/.profile"
 fi
 
 echo "All ok!"
-

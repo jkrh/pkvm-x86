@@ -1,0 +1,31 @@
+From 37daca1a72d8e7a9642cf94369186458e1bf7188 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
+Date: Fri, 13 Mar 2026 09:04:56 +0200
+Subject: [PATCH] FIXME: always trap MSI-X region
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
+---
+ devices/src/pci/vfio_pci.rs | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/devices/src/pci/vfio_pci.rs b/devices/src/pci/vfio_pci.rs
+index cedcf311db30..8ad41938a633 100644
+--- a/devices/src/pci/vfio_pci.rs
++++ b/devices/src/pci/vfio_pci.rs
+@@ -1172,7 +1172,9 @@ impl VfioPciDevice {
+             // these bars should be trapped, so that msix could be emulated.
+             let mut mmaps = self.device.get_region_mmap(index);
+ 
+-            if self.msix_cap.is_some() && !self.device.get_region_msix_mmappable(index) {
++            // Force trap MSI-X table/PBA accesses so guest vector programming
++            // always updates crosvm's IRQ routing for VFIO devices.
++            if self.msix_cap.is_some() {
+                 mmaps = self.remove_bar_mmap_msix(index, mmaps);
+             }
+             if mmaps.is_empty() {
+-- 
+2.49.0
+

@@ -1,0 +1,49 @@
+From cdbe774b12460dea2c568a66b92aa71820b4cc14 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Markku=20Ahvenj=C3=A4rvi?= <mankku@gmail.com>
+Date: Fri, 21 Aug 2026 15:38:30 +0300
+Subject: [PATCH] virtio: Allow non-IOTLB vhost-user backends with confidential
+ guests
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Confidential guests require VIRTIO_F_IOMMU_PLATFORM so that guest memory
+can be explicitly shared with devices, because the host cannot access
+private guest memory.
+
+A vhost-user backend may not support IOTLB. This does not prevent it from
+operating with a confidential guest when no IOVA translation is required.
+
+Do not fail device realization when iommu_platform=true is requested for
+a confidential guest and the backend lacks IOTLB support.
+
+Signed-off-by: Markku Ahvenjärvi <mankku@gmail.com>
+---
+ hw/virtio/virtio-bus.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/hw/virtio/virtio-bus.c b/hw/virtio/virtio-bus.c
+index cef944e01588..942bff2ce3bb 100644
+--- a/hw/virtio/virtio-bus.c
++++ b/hw/virtio/virtio-bus.c
+@@ -26,6 +26,7 @@
+ #include "qemu/error-report.h"
+ #include "qemu/module.h"
+ #include "qapi/error.h"
++#include "hw/core/boards.h"
+ #include "hw/virtio/virtio-bus.h"
+ #include "hw/virtio/virtio.h"
+ #include "system/address-spaces.h"
+@@ -94,7 +95,8 @@ void virtio_bus_device_plugged(VirtIODevice *vdev, Error **errp)
+         virtio_add_feature(&vdev->host_features, VIRTIO_F_IOMMU_PLATFORM);
+         if (klass->get_dma_as) {
+             vdev->dma_as = klass->get_dma_as(qbus->parent);
+-            if (!vdev_has_iommu && vdev->dma_as != &address_space_memory) {
++            if (!MACHINE(qdev_get_machine())->cgs && !vdev_has_iommu &&
++                vdev->dma_as != &address_space_memory) {
+                 error_setg(errp,
+                        "iommu_platform=true is not supported by the device");
+                 return;
+-- 
+2.49.0
+

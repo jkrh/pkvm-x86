@@ -5,13 +5,11 @@
 }:
 let
   # Portable default: pinned upstream linux tree.
-  defaultKernelSrc = builtins.fetchGit {
+  defaultKernelSrc = fetchGit {
     url = "https://github.com/tiiuae/pKVM-x86.git";
     ref = "linux-6.12.y-pkvm-dev";
-    rev = "50b5d7c5decca0ff4d935fe6f59c326d351ebfda";
+    rev = "aa0146f8ccf787a78d4aefb13367be7cff99ac90";
   };
-  defaultKernelVersion = "6.12.58";
-
   # For building local kernel, e.g.:
   # LINUX_SRC=$PWD/linux nix build .#linux-pkvm-host --impure --no-write-lock-file
   localKernelSrc = builtins.getEnv "LINUX_SRC";
@@ -19,7 +17,7 @@ let
 
   kernelSrc =
     if withLocalKernel then
-      builtins.fetchGit {
+      fetchGit {
         # Local override from git working tree:
         # includes tracked uncommitted changes; excludes .git and ignored/untracked files.
         url = "file://${localKernelSrc}";
@@ -28,16 +26,14 @@ let
       defaultKernelSrc;
 
   # Override version:
-  # LINUX_KERNEL_VERSIO=6.18.0 nix build <target> --impure --no-write-lock-file
+  # LINUX_KERNEL_VERSION=6.18.0 nix build <target> --impure --no-write-lock-file
   kernelVersionOverride = builtins.getEnv "LINUX_KERNEL_VERSION";
 
   kernelVersion =
     if kernelVersionOverride != "" then
       kernelVersionOverride
-    else if withLocalKernel then
-      kernelVersionFromSource localKernelSrc
     else
-      defaultKernelVersion;
+      kernelVersionFromSource kernelSrc;
 
   kernelVersionFromSource = import ./kernel-version.nix { lib = pkgs.lib; };
 
